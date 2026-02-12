@@ -106,8 +106,8 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
   };
 
   return (
-    <div className="h-full bg-[#050505] flex flex-col relative border-t border-white/10 shadow-2xl">
-      <div className="h-12 border-b border-white/5 flex items-center px-6 justify-between bg-[#0a0a0a] z-[60]">
+    <div className="h-full bg-bg-canvas flex flex-col relative border-t border-border-strong shadow-2xl">
+      <div className="h-12 border-b border-border-default flex items-center px-6 justify-between bg-bg-surface z-[60]">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 bg-black/40 p-1 rounded-full border border-white/5">
             <button onClick={() => props.setIsPlaying(!props.isPlaying)} className="w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center justify-center shadow-lg active:scale-90">
@@ -127,14 +127,14 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
           </div>
         </div>
       </div>
-      <div ref={containerRef} className="flex-1 overflow-x-auto overflow-y-auto relative bg-[#020202] scrollbar-none">
+      <div ref={containerRef} className="flex-1 overflow-x-auto overflow-y-auto relative bg-bg-canvas-deep scrollbar-none">
         <div className="min-w-[20000px] relative" style={{ paddingLeft: LEFT_PADDING }}>
-          <canvas ref={canvasRef} style={{ width: '20000px', height: `${RULER_HEIGHT}px` }} className="sticky top-0 bg-[#020202]/95 backdrop-blur-md z-[55] cursor-pointer border-b border-white/5" onMouseDown={scrub} />
+          <canvas ref={canvasRef} style={{ width: '20000px', height: `${RULER_HEIGHT}px` }} className="sticky top-0 bg-bg-canvas/95 backdrop-blur-md z-[55] cursor-pointer border-b border-border-default" onMouseDown={scrub} />
           <div ref={playheadRef} className="absolute top-0 bottom-0 w-[2px] bg-red-600 z-[100] pointer-events-none" style={{ left: 0, willChange: 'transform', transform: `translate3d(${props.currentTime * props.zoom + LEFT_PADDING}px, 0, 0)` }}>
               <div className="w-6 h-6 bg-red-600 rounded-b-lg shadow-[0_0_20px_rgba(220,38,38,0.5)] -ml-[11px] pointer-events-auto cursor-col-resize flex items-center justify-center"><div className="w-[1px] h-3 bg-white/30" /></div>
           </div>
           <div className="relative" style={{ height: TRACK_COUNT * TRACK_HEIGHT }} onMouseDown={(e) => { if (e.target === e.currentTarget) props.setSelectedId(null); }}>
-            {[...Array(TRACK_COUNT + 1)].map((_, i) => (<div key={i} className="absolute left-[-24px] right-0 border-t border-white/5 pointer-events-none" style={{ top: i * TRACK_HEIGHT }} />))}
+            {[...Array(TRACK_COUNT + 1)].map((_, i) => (<div key={i} className="absolute left-[-24px] right-0 border-t border-border-subtle pointer-events-none" style={{ top: i * TRACK_HEIGHT }} />))}
             {props.items.map((item) => (<TimelineItem key={item.instanceId} item={item} zoom={props.zoom} selectedId={props.selectedId} setSelectedId={props.setSelectedId} setItems={props.setItems} trackCount={TRACK_COUNT} />))}
           </div>
         </div>

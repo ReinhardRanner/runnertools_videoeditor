@@ -12,8 +12,10 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "@radix-ui/react-popover": "^1.1.15",
     "@vitejs/plugin-react-swc": "^4.2.3",
     "framer-motion": "^12.34.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.563.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

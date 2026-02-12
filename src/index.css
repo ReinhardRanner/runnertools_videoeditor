@@ -1,11 +1,46 @@
 @import "tailwindcss";
 
+/* ===== GLOBAL THEME ===== */
+@theme {
+  /* Background layers (darkest to lightest) */
+  --color-bg-base: #0d0d0d;
+  --color-bg-surface: #111111;
+  --color-bg-elevated: #161616;
+  --color-bg-overlay: #1a1a1a;
+
+  /* Canvas/composition area */
+  --color-bg-canvas: #0a0a0a;
+  --color-bg-canvas-deep: #080808;
+
+  /* Borders & lines */
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-border-default: rgba(255, 255, 255, 0.12);
+  --color-border-strong: rgba(255, 255, 255, 0.20);
+
+  /* Accent */
+  --color-accent: #6366f1;
+  --color-accent-hover: #818cf8;
+}
+
+:root {
+  /* CSS custom properties for direct use */
+  --bg-base: #0d0d0d;
+  --bg-surface: #111111;
+  --bg-elevated: #161616;
+  --bg-overlay: #1a1a1a;
+  --bg-canvas: #0a0a0a;
+  --bg-canvas-deep: #080808;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-default: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.20);
+}
+
 /* Ensure the root containers take up the whole screen */
 :root, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
-  background-color: #020202;
+  background-color: var(--bg-base);
   overflow: hidden;
 }
 /* Moveable UI Customization */

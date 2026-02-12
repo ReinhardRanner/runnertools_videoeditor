@@ -1,10 +1,14 @@
 export interface Asset {
   id: string;
   name: string;
-  type: 'video' | 'audio' | 'image';
+  type: 'video' | 'audio' | 'image' | 'html' | 'manim';
   url: string;
   file?: File;
   sourceDuration: number;
+  sourceWidth?: number;  // Original width (for generated content)
+  sourceHeight?: number; // Original height (for generated content)
+  code?: string; // Der generierte HTML/Python Code
+  prompt?: string; // Der letzte verwendete Prompt
 }
 
 export interface TrackItem extends Asset {

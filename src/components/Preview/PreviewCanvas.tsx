@@ -105,7 +105,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
       onClick={() => setActiveMenu(null)}
-      className={`relative w-full h-full bg-[#0d0d0d] overflow-hidden flex items-center justify-center canvas-container ${
+      className={`relative w-full h-full bg-bg-elevated overflow-hidden flex items-center justify-center canvas-container ${
         tool === 'hand' ? (isDraggingUI ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
       }`}
     >
@@ -128,7 +128,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
       <div 
         ref={stageRef}
         id="canvas-stage"
-        className="relative bg-black shadow-[0_0_100px_rgba(0,0,0,1)] border border-white/20 flex-shrink-0"
+        className="relative bg-black shadow-[0_0_100px_rgba(0,0,0,1)] border border-border-strong flex-shrink-0"
         style={{ 
           width: resolution.w, 
           height: resolution.h, 
@@ -141,7 +141,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
       </div>
 
       <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-2 z-[400]" onClick={e => e.stopPropagation()}>
-        <div className="flex gap-1 bg-black/90 backdrop-blur-xl border border-white/10 p-1 rounded-xl h-10 shadow-2xl">
+        <div className="flex gap-1 bg-bg-overlay/90 backdrop-blur-xl border border-border-default p-1 rounded-xl h-10 shadow-2xl">
           <button onClick={() => setTool('select')} className={`px-3 rounded-lg transition-all ${tool === 'select' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}><MousePointer2 size={16} /></button>
           <button onClick={() => setTool('hand')} className={`px-3 rounded-lg transition-all ${tool === 'hand' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}><Hand size={16} /></button>
         </div>
