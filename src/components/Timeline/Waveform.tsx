@@ -3,7 +3,7 @@ import { TrackItem } from '../../types';
 
 const waveformCache = new Map<string, Float32Array>();
 
-export const Waveform = memo(({ url, width, item, zoom }: { url: string; width: number; item: TrackItem; zoom: number }) => {
+export const Waveform = memo(({ url, width, item, zoom, color }: { url: string; width: number; item: TrackItem; zoom: number; color: string }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const smoothstep = (t: number) => {
@@ -27,28 +27,22 @@ export const Waveform = memo(({ url, width, item, zoom }: { url: string; width: 
       
       ctx.clearRect(0, 0, width, 54);
       ctx.globalAlpha = 0.6;
-      ctx.strokeStyle = '#818cf8'; 
+      
+      // Use the color prop passed from TimelineItem
+      ctx.strokeStyle = color; 
       ctx.lineCap = 'round';
 
       const TIME_STEP = 0.05; 
       ctx.lineWidth = Math.max(1, (TIME_STEP * zoom) - 1.5);
 
-      // GLOBAL ALIGNMENT LOGIK:
-      // Wir berechnen den ersten Balken basierend auf dem absoluten Start des Original-Files.
-      // Dadurch "snappt" das Zeichnen an ein festes Zeitraster im File.
       const firstVisibleBarTime = Math.ceil(item.startTimeOffset / TIME_STEP) * TIME_STEP;
       const lastVisibleBarTime = item.startTimeOffset + item.duration;
 
       for (let sourceTime = firstVisibleBarTime; sourceTime <= lastVisibleBarTime; sourceTime += TIME_STEP) {
-        
-        // Index im Peak-Array (absolut stabil)
-        const peakIdx = Math.floor((sourceTime / item.sourceDuration) * peaks.length);
+        const peakIdx = Math.floor((sourceTime / (item.sourceDuration || 1)) * peaks.length);
         const peak = peaks[peakIdx] || 0;
-
-        // Zeit relativ zum Clip-Anfang (für Fades und X-Position auf Canvas)
         const localTime = sourceTime - item.startTimeOffset;
 
-        // Gain-Berechnung
         let gain = item.volume ?? 1;
         if (localTime < item.fadeInDuration) {
           gain *= smoothstep(localTime / item.fadeInDuration);
@@ -57,8 +51,6 @@ export const Waveform = memo(({ url, width, item, zoom }: { url: string; width: 
         }
 
         const h = Math.max(1, peak * gain * 34 * 6);
-        
-        // Die X-Position auf dem Canvas ist nun immun gegen das Verschieben des Clip-Randes
         const x = localTime * zoom;
         
         ctx.beginPath();
@@ -89,7 +81,7 @@ export const Waveform = memo(({ url, width, item, zoom }: { url: string; width: 
         })
         .catch(() => {});
     }
-  }, [url, width, zoom, item.volume, item.fadeInDuration, item.fadeOutDuration, item.duration, item.startTimeOffset]);
+  }, [url, width, zoom, item.volume, item.fadeInDuration, item.fadeOutDuration, item.duration, item.startTimeOffset, color]);
 
   return <canvas ref={canvasRef} style={{ width, height: 54 }} className="absolute inset-0 pointer-events-none z-0" />;
 });
