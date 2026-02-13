@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as Resizable from 'react-resizable-panels'; 
 import { Film, Download, ChevronDown, Zap, Settings, Volume2 } from 'lucide-react';
-import Moveable from "react-moveable";
+import { EditorItem } from './components/Preview/EditorItem';
 
 // Modular Imports
 import { Asset, TrackItem } from './types';
@@ -387,37 +387,34 @@ export default function App() {
                     const isVisible = currentTime >= item.startTime && currentTime <= (item.startTime + item.duration);
                     if (!isVisible) return null;
                     return (
-                      <div key={item.instanceId} onMouseDown={(e) => e.stopPropagation()}>
-                        <div id={`target-${item.instanceId}`} className="absolute" style={{ width: item.width, height: item.height, zIndex: 100 - item.layer, transform: `translate(${item.x}px, ${item.y}px) rotate(${item.rotation}deg)`, opacity: item.opacity ?? 1 }} onMouseDown={() => setSelectedInstanceId(item.instanceId)}>
-                          {item.type === 'audio' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-500/10 border-2 border-dashed border-indigo-500/30 rounded-lg pointer-events-none"><Volume2 className="text-indigo-400 opacity-40" size={48} /><span className="text-[10px] font-black text-indigo-400/40 uppercase mt-2 tracking-tighter">{item.name}</span></div>}
-                          <MediaClipPlayer item={item} currentTime={currentTime} isPlaying={isPlaying} isMuted={isPreviewMuted} />
-                        </div>
-                        {selectedInstanceId === item.instanceId && (
-                          <Moveable
-                            target={document.querySelector(`#target-${item.instanceId}`)}
-                            draggable={tool === 'select'}
-                            resizable={tool === 'select'}
-                            rotatable={tool === 'select'}
-                            snappable
-                            snapCenter
-                            snapThreshold={10}
-                            zoom={1/canvasZoom}
-                            keepRatio={isShiftPressed}
-                            verticalGuidelines={[0, resolution.w / 2, resolution.w]}
-                            horizontalGuidelines={[0, resolution.h / 2, resolution.h]}
-                            elementGuidelines={timelineItems
-                              .filter(i => i.instanceId !== item.instanceId && currentTime >= i.startTime && currentTime <= i.startTime + i.duration)
-                              .map(i => document.querySelector(`#target-${i.instanceId}`) as HTMLElement)
-                              .filter(Boolean)}
-                            onDrag={({ target, transform }) => target.style.transform = transform}
-                            onDragEnd={() => { const m = new WebKitCSSMatrix((document.querySelector(`#target-${selectedInstanceId}`) as HTMLElement).style.transform); updateSelectedItem({ x: m.m41, y: m.m42 }); }}
-                            onResize={e => { e.target.style.width = `${e.width}px`; e.target.style.height = `${e.height}px`; e.target.style.transform = e.drag.transform; }}
-                            onResizeEnd={({ target }) => { const m = new WebKitCSSMatrix(target.style.transform); updateSelectedItem({ width: target.offsetWidth, height: target.offsetHeight, x: m.m41, y: m.m42 }); }}
-                            onRotate={({ target, transform }) => target.style.transform = transform}
-                            onRotateEnd={({ target }) => { const r = target.style.transform.match(/rotate\((.+?)deg\)/); updateSelectedItem({ rotation: r ? parseFloat(r[1]) : 0 }); }}
-                          />
-                        )}
-                      </div>
+                      <EditorItem
+                        key={item.instanceId}
+                        id={item.instanceId}
+                        type={item.type}
+                        name={item.name}
+                        
+                        // Position & Props
+                        isSelected={selectedInstanceId === item.instanceId}
+                        x={item.x}
+                        y={item.y}
+                        width={item.width}
+                        height={item.height}
+                        rotation={item.rotation}
+                        zoom={canvasZoom} // <--- WICHTIGSTER PARAMETER
+                        canvasResolution={resolution}
+                        
+                        // Events
+                        onSelect={() => setSelectedInstanceId(item.instanceId)}
+                        onUpdate={(id, updates) => updateSelectedItem(updates)}
+                      >
+                        {/* Child Content */}
+                        <MediaClipPlayer 
+                          item={item} 
+                          currentTime={currentTime} 
+                          isPlaying={isPlaying} 
+                          isMuted={isPreviewMuted} 
+                        />
+                      </EditorItem>
                     );
                   })}
                 </PreviewCanvas>
