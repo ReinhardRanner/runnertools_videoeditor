@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { TrackItem } from '../../types';
 import { TimelineItem } from './TimelineItem';
+import { timeStore } from '../../utils/TimeStore';
 
 interface TimelineProps {
   items: TrackItem[];
@@ -16,6 +17,7 @@ interface TimelineProps {
   setZoom: (zoom: number) => void;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
+  onCaptureFrame: (name: string, dataUrl: string) => void;
 }
 
 const TRACK_COUNT = 8;
@@ -25,7 +27,19 @@ const LEFT_PADDING = 24;
 
 const formatTime = (seconds: number) => new Date(seconds * 1000).toISOString().substr(14, 8);
 
-export const Timeline: React.FC<TimelineProps> = (props) => {
+export const Timeline: React.FC<TimelineProps> = ({
+  items,
+  setItems,
+  currentTime,
+  setCurrentTime,
+  isPlaying,
+  setIsPlaying,
+  zoom,
+  setZoom,
+  selectedId,
+  setSelectedId,
+  onCaptureFrame // Unpacked here!
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
@@ -38,11 +52,11 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
   useLayoutEffect(() => {
     if (scrollAnchorRef.current && containerRef.current) {
       const { time, x } = scrollAnchorRef.current;
-      const newScroll = (time * props.zoom) - x + LEFT_PADDING;
+      const newScroll = (time * zoom) - x + LEFT_PADDING;
       containerRef.current.scrollLeft = newScroll;
       scrollAnchorRef.current = null;
     }
-  }, [props.zoom]);
+  }, [zoom]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -52,15 +66,15 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
         e.preventDefault();
         const rect = el.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
-        const timeAtMouse = (mouseX + el.scrollLeft - LEFT_PADDING) / props.zoom;
+        const timeAtMouse = (mouseX + el.scrollLeft - LEFT_PADDING) / zoom;
         scrollAnchorRef.current = { time: timeAtMouse, x: mouseX };
         const factor = e.deltaY > 0 ? 0.9 : 1.1;
-        props.setZoom(Math.min(Math.max(15, props.zoom * factor), 200));
+        setZoom(Math.min(Math.max(15, zoom * factor), 200));
       }
     };
     el.addEventListener('wheel', handleWheel, { passive: false });
     return () => el.removeEventListener('wheel', handleWheel);
-  }, [props.zoom, props.setZoom]);
+  }, [zoom, setZoom]);
 
   // --- MIDDLE MOUSE PANNING ---
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -89,9 +103,9 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
 
   // --- SPLIT LOGIC ---
   const handleSplit = () => {
-    const time = props.currentTime;
-    const target = props.items.find(i => 
-      i.instanceId === props.selectedId && 
+    const time = currentTime;
+    const target = items.find(i => 
+      i.instanceId === selectedId && 
       time > i.startTime && 
       time < (i.startTime + i.duration)
     );
@@ -108,34 +122,31 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
       duration: secondPartDuration,
       fadeInDuration: 0,
     };
-    props.setItems(prev => prev.flatMap(i => {
+    setItems(prev => prev.flatMap(i => {
       if (i.instanceId === target.instanceId) {
         return [{ ...i, duration: firstPartDuration, fadeOutDuration: 0 }, newPart];
       }
       return [i];
     }));
-    props.setSelectedId(newPart.instanceId);
+    setSelectedId(newPart.instanceId);
   };
 
   // --- PLAYHEAD ANIMATION ---
-  const timeRef = useRef(props.currentTime);
-  useEffect(() => { timeRef.current = props.currentTime; }, [props.currentTime]);
+  const timeRef = useRef(currentTime);
+  useEffect(() => { timeRef.current = currentTime; }, [currentTime]);
 
   useEffect(() => {
-    if (!props.isPlaying) return;
-    let frameId: number;
-    let lastTime = performance.now();
-    const loop = () => {
-      const now = performance.now();
-      timeRef.current += (now - lastTime) / 1000;
-      lastTime = now;
-      if (playheadRef.current) playheadRef.current.style.transform = `translate3d(${timeRef.current * props.zoom + LEFT_PADDING}px, 0, 0)`;
-      if (timecodeRef.current) timecodeRef.current.innerText = formatTime(timeRef.current);
-      frameId = requestAnimationFrame(loop);
-    };
-    frameId = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(frameId); props.setCurrentTime(timeRef.current); };
-  }, [props.isPlaying, props.zoom, props.setCurrentTime]);
+    const unsubscribe = timeStore.subscribe((time) => {
+      if (playheadRef.current) {
+        playheadRef.current.style.transform = `translate3d(${time * zoom + LEFT_PADDING}px, 0, 0)`;
+      }
+      if (timecodeRef.current) {
+        timecodeRef.current.innerText = formatTime(time);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [zoom]);
 
   // --- RULER ---
   useEffect(() => {
@@ -146,32 +157,32 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
     ctx.scale(dpr, dpr); ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'; ctx.font = '9px monospace';
     for (let i = 0; i < 500; i++) {
-      const x = i * props.zoom;
+      const x = i * zoom;
       ctx.beginPath(); ctx.moveTo(x, RULER_HEIGHT); ctx.lineTo(x, i % 5 === 0 ? 20 : 30); ctx.stroke();
       if (i % 5 === 0) ctx.fillText(`${i}s`, x + 4, 18);
     }
-  }, [props.zoom]);
+  }, [zoom]);
 
   // --- SCRUBBING WITH SNAPPING ---
   const scrub = (e: React.MouseEvent) => {
     e.preventDefault();
-    props.setIsPlaying(false);
+    setIsPlaying(false);
 
     // Alle möglichen Snap-Punkte sammeln (Clip-Anfänge und -Enden)
     const snapPoints = [
       0,
-      ...props.items.map(i => i.startTime),
-      ...props.items.map(i => i.startTime + i.duration)
+      ...items.map(i => i.startTime),
+      ...items.map(i => i.startTime + i.duration)
     ];
 
     const update = (clientX: number) => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const rawTime = (clientX - rect.left + containerRef.current.scrollLeft - LEFT_PADDING) / props.zoom;
+      const rawTime = (clientX - rect.left + containerRef.current.scrollLeft - LEFT_PADDING) / zoom;
       let finalTime = Math.max(0, rawTime);
 
       // Snapping Logik (Magnet-Radius ca. 12 Pixel)
-      const threshold = 12 / props.zoom;
+      const threshold = 12 / zoom;
       let triggeredSnap = null;
       for (const p of snapPoints) {
         if (Math.abs(p - finalTime) < threshold) {
@@ -182,7 +193,9 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
       }
 
       setSnapLineTime(triggeredSnap);
-      props.setCurrentTime(finalTime);
+      
+      setCurrentTime(finalTime);
+      timeStore.update(finalTime, false);
     };
 
     update(e.clientX);
@@ -202,19 +215,19 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
       <div className="h-12 border-b border-border-default flex items-center px-6 justify-between bg-bg-surface z-[60]">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 bg-black/40 p-1 rounded-full border border-white/5">
-            <button onClick={() => props.setIsPlaying(!props.isPlaying)} className="w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center justify-center">
-              {props.isPlaying ? <Pause size={14} fill="currentColor"/> : <Play size={14} fill="currentColor" className="ml-0.5"/>}
+            <button onClick={() => setIsPlaying(!isPlaying)} className="w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center justify-center">
+              {isPlaying ? <Pause size={14} fill="currentColor"/> : <Play size={14} fill="currentColor" className="ml-0.5"/>}
             </button>
-            <button onClick={() => { props.setIsPlaying(false); props.setCurrentTime(0); }} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white"><Square size={14} fill="currentColor"/></button>
+            <button onClick={() => { setIsPlaying(false); setCurrentTime(0); }} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white"><Square size={14} fill="currentColor"/></button>
           </div>
-          <span ref={timecodeRef} className="text-[12px] font-mono text-indigo-400 font-bold tracking-widest">{formatTime(props.currentTime)}</span>
+          <span ref={timecodeRef} className="text-[12px] font-mono text-indigo-400 font-bold tracking-widest">{formatTime(currentTime)}</span>
         </div>
         <div className="flex items-center gap-4">
           <button onClick={handleSplit} className="p-1.5 bg-white/5 hover:bg-indigo-600 border border-white/5 rounded-xl text-gray-400 hover:text-white transition-all active:scale-95 shadow-xl"><Scissors size={16}/></button>
           <div className="flex items-center gap-2 bg-black/20 px-2 py-1.5 rounded-lg border border-white/5">
-            <button onClick={() => props.setZoom(Math.max(15, props.zoom - 10))} className="p-1 text-gray-500 hover:text-indigo-400"><ZoomIn size={14} /></button>
-            <input type="range" min="15" max="200" step="2" value={props.zoom} onChange={(e) => props.setZoom(Number(e.target.value))} className="w-24 accent-indigo-500 cursor-pointer" />
-            <button onClick={() => props.setZoom(Math.min(200, props.zoom + 10))} className="p-1 text-gray-500 hover:text-indigo-400"><ZoomOut size={14} /></button>
+            <button onClick={() => setZoom(Math.max(15, zoom - 10))} className="p-1 text-gray-500 hover:text-indigo-400"><ZoomIn size={14} /></button>
+            <input type="range" min="15" max="200" step="2" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-24 accent-indigo-500 cursor-pointer" />
+            <button onClick={() => setZoom(Math.min(200, zoom + 10))} className="p-1 text-gray-500 hover:text-indigo-400"><ZoomOut size={14} /></button>
           </div>
         </div>
       </div>
@@ -232,7 +245,7 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
           <div 
             ref={playheadRef} 
             className="absolute top-0 bottom-0 w-[1.5px] bg-red-500 z-[100] pointer-events-none" 
-            style={{ left: 0, transform: `translate3d(${props.currentTime * props.zoom + LEFT_PADDING}px, 0, 0)` }}
+            style={{ left: 0, transform: `translate3d(${currentTime * zoom + LEFT_PADDING}px, 0, 0)` }}
           >
               {/* Der "Kopf" des Playheads - schlankeres, professionelles Design */}
               <div 
@@ -247,25 +260,26 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
 
           {/* SNAP LINE (Wird beim Snappen sichtbar) */}
           {snapLineTime !== null && (
-            <div className="absolute top-0 bottom-0 w-[1px] bg-indigo-400 z-[45] pointer-events-none shadow-[0_0_10px_rgba(129,140,248,0.8)]" style={{ left: snapLineTime * props.zoom + LEFT_PADDING }} />
+            <div className="absolute top-0 bottom-0 w-[1px] bg-indigo-400 z-[45] pointer-events-none shadow-[0_0_10px_rgba(129,140,248,0.8)]" style={{ left: snapLineTime * zoom + LEFT_PADDING }} />
           )}
 
-          <div className="relative" style={{ height: TRACK_COUNT * TRACK_HEIGHT }} onMouseDown={(e) => { if (e.target === e.currentTarget) props.setSelectedId(null); }}>
+          <div className="relative" style={{ height: TRACK_COUNT * TRACK_HEIGHT }} onMouseDown={(e) => { if (e.target === e.currentTarget) setSelectedId(null); }}>
             {[...Array(TRACK_COUNT + 1)].map((_, i) => (
               <div key={i} className="absolute left-[-24px] right-0 border-t border-border-subtle pointer-events-none" style={{ top: i * TRACK_HEIGHT }} />
             ))}
-            {props.items.map((item) => (
+            {items.map((item) => (
               <TimelineItem 
                 key={item.instanceId} 
                 item={item} 
-                zoom={props.zoom} 
-                selectedId={props.selectedId} 
-                setSelectedId={props.setSelectedId} 
-                setItems={props.setItems} 
+                zoom={zoom} 
+                selectedId={selectedId} 
+                setSelectedId={setSelectedId} 
+                setItems={setItems} 
                 trackCount={TRACK_COUNT}
-                items={props.items}
-                playheadTime={props.currentTime}
+                items={items}
+                playheadTime={currentTime}
                 onSnap={setSnapLineTime}
+                onCaptureFrame={onCaptureFrame}
               />
             ))}
           </div>

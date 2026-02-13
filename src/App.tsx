@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as Resizable from 'react-resizable-panels'; 
 import { Film, Download, ChevronDown, Zap, Settings, Volume2 } from 'lucide-react';
 import { EditorItem } from './components/Preview/EditorItem';
+import { timeStore } from './utils/TimeStore';
 
 // Modular Imports
 import { Asset, TrackItem } from './types';
@@ -71,21 +72,56 @@ export default function App() {
 
   const lastTimeRef = useRef(performance.now());
 
-  // --- Playback Loop ---
+  // Inside your App component:
+  const renderMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (renderMenuRef.current && !renderMenuRef.current.contains(e.target as Node)) {
+        setIsRenderMenuOpen(false);
+      }
+    };
+    if (isRenderMenuOpen) {
+      window.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => window.removeEventListener('mousedown', handleClickOutside);
+  }, [isRenderMenuOpen]);
+
+  // 2. Fix the loop in App.tsx
+  useEffect(() => {
+    timeStore.update(currentTime, isPlaying);
+  }, [isPlaying]);
+
+  // 2. The Unified Heartbeat Loop
   useEffect(() => {
     let frameId: number;
+    let lastTime = performance.now();
+
     const loop = () => {
       if (isPlaying) {
         const now = performance.now();
-        const delta = (now - lastTimeRef.current) / 1000;
-        lastTimeRef.current = now;
-        setCurrentTime(prev => prev + delta);
-      } else { lastTimeRef.current = performance.now(); }
+        const delta = (now - lastTime) / 1000;
+        lastTime = now;
+        
+        const nextTime = timeStore.currentTime + delta;
+        
+        // Update the Store (60fps)
+        timeStore.update(nextTime, isPlaying);
+
+        // Throttled Sync to React (only 10fps) to keep 'isVisible' logic working 
+        // without destroying performance.
+        if (Math.abs(nextTime - currentTime) > 0.1) {
+          setCurrentTime(nextTime);
+        }
+      } else {
+        lastTime = performance.now();
+      }
       frameId = requestAnimationFrame(loop);
     };
+    
     frameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frameId);
-  }, [isPlaying]);
+  }, [isPlaying, currentTime]);
 
   // --- Actions ---
   const onSplit = useCallback(() => {
@@ -109,16 +145,58 @@ export default function App() {
     Array.from(e.target.files).forEach((file) => {
       const url = URL.createObjectURL(file);
       const id = Math.random().toString(36).substr(2, 9);
+
       if (file.type.startsWith('video')) {
-        const v = document.createElement('video'); v.src = url;
-        v.onloadedmetadata = () => setAssets(prev => [...prev, { id, name: file.name, type: 'video', url, file, duration: v.duration, resolution: { w: v.videoWidth, h: v.videoHeight } }]);
-      } else if (file.type.startsWith('audio')) {
-        const a = new Audio(); a.src = url;
-        a.onloadedmetadata = () => setAssets(prev => [...prev, { id, name: file.name, type: 'audio', url, file, duration: a.duration }]);
-      } else if (file.type.startsWith('image')) {
-        setAssets(prev => [...prev, { id, name: file.name, type: 'image', url, file }]);
+        const v = document.createElement('video');
+        v.src = url;
+        v.onloadedmetadata = () => setAssets(prev => [...prev, { 
+          id, name: file.name, type: 'video', url, file, 
+          duration: v.duration, 
+          resolution: { w: v.videoWidth, h: v.videoHeight } 
+        }]);
+      } 
+      else if (file.type.startsWith('audio')) {
+        const a = new Audio();
+        a.src = url;
+        a.onloadedmetadata = () => setAssets(prev => [...prev, { 
+          id, name: file.name, type: 'audio', url, file, 
+          duration: a.duration 
+        }]);
+      } 
+      else if (file.type.startsWith('image')) {
+        const img = new Image();
+        img.src = url;
+        img.onload = () => {
+          setAssets(prev => [...prev, { 
+            id, name: file.name, type: 'image', url, file, 
+            duration: 5, // <--- DEFAULT DURATION (5 seconds)
+            resolution: { w: img.naturalWidth, h: img.naturalHeight } // <--- REAL SIZE
+          }]);
+        };
       }
     });
+  };
+
+  const handleCaptureFrame = (name: string, dataUrl: string) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    
+    // Convert DataURL to a File object so it behaves like a real upload
+    fetch(dataUrl)
+      .then(res => res.blob())
+      .then(blob => {
+        const file = new File([blob], `${name}.jpg`, { type: 'image/jpeg' });
+        
+        const newAsset: Asset = {
+          id,
+          name: `${name}.jpg`,
+          type: 'image',
+          url: dataUrl, // Use the generated URL
+          file,
+          duration: 5, // Default for new images
+        };
+
+        setAssets(prev => [...prev, newAsset]);
+      });
   };
 
   const updateAsset = (id: string, updates: Partial<Asset>) => {
@@ -136,7 +214,8 @@ export default function App() {
 
     const newItem: TrackItem = {
       ...asset,
-      instanceId: Math.random().toString(36).substr(2, 9),
+      url: asset.url || '',
+      instanceId: crypto.randomUUID(),
       startTime: currentTime,
       duration: asset.duration,
       sourceDuration: asset.duration,
@@ -293,47 +372,83 @@ export default function App() {
 
   return (
     <div className="flex flex-col w-screen h-screen bg-bg-base text-gray-200 overflow-hidden font-sans select-none">
+      {/* --- GLOBAL BACKDROP --- */}
+      {/* We place this outside the nav so it covers the entire viewport */}
+      <div 
+        onClick={() => setIsRenderMenuOpen(false)}
+        className={`fixed inset-0 z-[550] transition-all duration-500 ease-in-out ${
+          isRenderMenuOpen 
+          ? 'bg-black/60 backdrop-blur-md opacity-100 visible' 
+          : 'bg-black/0 backdrop-blur-none opacity-0 invisible pointer-events-none'
+        }`} 
+      />
+
       {/* --- HEADER BAR --- */}
-      <nav className="h-12 border-b border-border-strong flex items-center justify-between px-4 bg-bg-surface z-[100] shadow-xl">
-        <div className="flex items-center gap-2 font-black text-indigo-500 italic uppercase tracking-tighter">
-          <Film size={18} /> Video Editor
+      <nav className="h-12 border-b border-white/5 flex items-center justify-between px-6 bg-darkgrey z-[600] relative">
+        <div className="flex items-center gap-3">
+          <Film size={16} />
+          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-white/80 italic">Runner Editor</span>
         </div>
         
-        <div className="relative">
+        <div className="relative" ref={renderMenuRef}>
           <button 
             onClick={() => setIsRenderMenuOpen(!isRenderMenuOpen)}
-            className="group relative bg-bg-canvas hover:bg-indigo-600 border border-border-default text-white h-10 px-5 rounded-2xl flex items-center gap-3 text-[11px] font-black uppercase transition-all duration-300"
+            className={`group h-9 px-5 rounded-xl flex items-center gap-3 transition-all duration-300 border z-[610] relative ${
+              isRenderMenuOpen 
+              ? 'bg-indigo-600 border-indigo-400 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)]' 
+              : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10 hover:text-white'
+            }`}
           >
-            <Download size={14} /> 
-            <span>{status !== 'idle' ? `Rendering ${progress}%` : 'Export Project'}</span>
-            <ChevronDown size={14} className={isRenderMenuOpen ? 'rotate-180' : ''} />
+            <Download size={14} className={isRenderMenuOpen ? 'animate-bounce' : ''} /> 
+            <span className="text-[10px] font-black uppercase tracking-widest">
+              {status !== 'idle' ? `Processing ${progress}%` : 'Export'}
+            </span>
+            <ChevronDown size={14} className={`transition-transform duration-500 ${isRenderMenuOpen ? 'rotate-180' : ''}`} />
           </button>
 
-          {isRenderMenuOpen && (
-            <div className="absolute top-14 right-0 w-80 bg-bg-elevated/95 backdrop-blur-xl border border-border-default rounded-3xl shadow-2xl z-[510] p-6 animate-in zoom-in-95 duration-200 origin-top-right">
-              <div className="space-y-6">
-                <StealthSelect label="Format" value={renderSettings.format} options={FORMATS.map(f => ({ label: `.${f.toUpperCase()}`, value: f }))} onChange={(f) => setRenderSettings({...renderSettings, format: f})} />
-                
-                <div>
-                  <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.2em] mb-3 px-1">Resolution</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[1, 0.5, 0.25].map((s) => (
-                      <button key={s} onClick={() => setRenderSettings({...renderSettings, scale: s})} className={`py-3 rounded-2xl border transition-all ${renderSettings.scale === s ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400' : 'bg-white/5 border-white/5 text-gray-500'}`}>
-                        <span className="text-[12px] font-black">{s === 1 ? 'FULL' : s === 0.5 ? '1/2' : '1/4'}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <StealthSelect label="Encoding" value={renderSettings.crf} options={QUALITY_LEVELS.map(q => ({ label: q.label, value: q.crf }))} onChange={(val) => setRenderSettings({...renderSettings, crf: val as number})} />
-                  <StealthSelect label="Framerate" value={renderSettings.fps} options={[24, 30, 60].map(f => ({ label: `${f} FPS`, value: f }))} onChange={(f) => setRenderSettings({...renderSettings, fps: f as number})} />
-                </div>
-
-                <button onClick={() => handleExport(timelineItems, renderSettings)} disabled={status !== 'idle'} className="w-full h-14 bg-white hover:bg-indigo-400 text-black rounded-2xl font-black uppercase text-[12px] transition-all"><Zap size={18} className="inline mr-2"/> Initiate Render</button>
+          {/* MENU WITH ZOOM & FADE ANIMATION */}
+          <div className={`absolute top-12 right-0 w-72 bg-[#0d0d0d] border border-white/10 rounded-[2rem] shadow-2xl z-[610] p-5 transition-all duration-300 origin-top-right backdrop-blur-3xl ${
+            isRenderMenuOpen 
+            ? 'opacity-100 scale-100 translate-y-0 visible' 
+            : 'opacity-0 scale-95 -translate-y-2 invisible pointer-events-none'
+          }`}>
+            <div className="space-y-5">
+              <div className="px-1 flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Settings</span>
+                <div className="h-px flex-1 bg-white/5 ml-4" />
               </div>
+
+              <StealthSelect label="Format" value={renderSettings.format} options={FORMATS.map(f => ({ label: `.${f.toUpperCase()}`, value: f }))} onChange={(f) => setRenderSettings({...renderSettings, format: f})} />
+              
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-black/40 rounded-xl border border-white/5">
+                {[1, 0.5, 0.25].map((s) => (
+                  <button 
+                    key={s} 
+                    onClick={() => setRenderSettings({...renderSettings, scale: s})} 
+                    className={`py-2 rounded-lg text-[9px] font-black transition-all ${renderSettings.scale === s ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+                  >
+                    {s === 1 ? '4K/HD' : s === 0.5 ? '720P' : '480P'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <StealthSelect label="Quality" value={renderSettings.crf} options={QUALITY_LEVELS.map(q => ({ label: q.label, value: q.crf }))} onChange={(val) => setRenderSettings({...renderSettings, crf: val as number})} />
+                <StealthSelect label="Rate" value={renderSettings.fps} options={[24, 30, 60].map(f => ({ label: `${f} FPS`, value: f }))} onChange={(f) => setRenderSettings({...renderSettings, fps: f as number})} />
+              </div>
+
+              <button 
+                onClick={() => {
+                  setIsRenderMenuOpen(false);
+                  handleExport(timelineItems, renderSettings);
+                }} 
+                disabled={status !== 'idle'} 
+                className="w-full h-12 bg-gradient-to-br from-indigo-500 to-indigo-700 hover:from-indigo-400 hover:to-indigo-600 text-white rounded-xl font-black uppercase text-[11px] tracking-widest transition-all active:scale-95 shadow-[0_10px_20px_rgba(79,70,229,0.3)] flex items-center justify-center gap-2"
+              >
+                <Zap size={16} fill="currentColor" /> Render
+              </button>
             </div>
-          )}
+          </div>
         </div>
       </nav>
 
@@ -385,40 +500,45 @@ export default function App() {
                 >
                   {[...timelineItems].sort((a, b) => b.layer - a.layer).map((item) => {
                     const isVisible = currentTime >= item.startTime && currentTime <= (item.startTime + item.duration);
-                    if (!isVisible) return null;
+                    // console.log(`Item ${item.name} is ${isVisible ? 'visible' : 'hidden'} at time ${currentTime.toFixed(2)}s (starts at ${item.startTime}s, duration ${item.duration}s)`);
+                    const isNear = currentTime >= (item.startTime - 2) && currentTime <= (item.startTime + item.duration + 2);
+                    // if (!isVisible) return null;
+                    
+                    if (!isNear) return null;
                     return (
-                      <EditorItem
-                        key={item.instanceId}
-                        id={item.instanceId}
-                        type={item.type}
-                        name={item.name}
-
-                        style={{
-                          zIndex: 10 - item.layer,
-                        }}
-                        
-                        // Position & Props
-                        isSelected={selectedInstanceId === item.instanceId}
-                        x={item.x}
-                        y={item.y}
-                        width={item.width}
-                        height={item.height}
-                        rotation={item.rotation}
-                        zoom={canvasZoom} // <--- WICHTIGSTER PARAMETER
-                        canvasResolution={resolution}
-                        
-                        // Events
-                        onSelect={() => setSelectedInstanceId(item.instanceId)}
-                        onUpdate={(id, updates) => updateSelectedItem(updates)}
-                      >
-                        {/* Child Content */}
-                        <MediaClipPlayer 
-                          item={item} 
-                          currentTime={currentTime} 
-                          isPlaying={isPlaying} 
-                          isMuted={isPreviewMuted} 
-                        />
-                      </EditorItem>
+                      <div key={item.instanceId} style={{ opacity: isVisible ? 1 : 0 }}>
+                        <EditorItem
+                          id={item.instanceId}
+                          type={item.type}
+                          name={item.name}
+                          tool={tool}
+                          
+                          // Position & Props
+                          isSelected={selectedInstanceId === item.instanceId}
+                          x={item.x}
+                          y={item.y}
+                          width={item.width}
+                          height={item.height}
+                          rotation={item.rotation}
+                          zoom={canvasZoom} // <--- WICHTIGSTER PARAMETER
+                          canvasResolution={resolution}
+                          zIndex={10 - item.layer}
+                          // opacity={item.opacity}
+                          // visibility={isVisible ? 'visible' : 'hidden'}
+                          
+                          // Events
+                          onSelect={() => setSelectedInstanceId(item.instanceId)}
+                          onUpdate={(id, updates) => updateSelectedItem(updates)}
+                        >
+                          {/* Child Content */}
+                          <MediaClipPlayer 
+                            item={item} 
+                            currentTime={currentTime} 
+                            isPlaying={isPlaying} 
+                            isMuted={isPreviewMuted} 
+                          />
+                        </EditorItem>
+                      </div>
                     );
                   })}
                 </PreviewCanvas>
@@ -433,7 +553,7 @@ export default function App() {
 
           <Separator className="h-1 bg-bg-canvas-deep hover:bg-indigo-600 transition-all" />
           <Panel defaultSize={35} minSize={20}>
-            <Timeline items={timelineItems} setItems={setTimelineItems} currentTime={currentTime} setCurrentTime={setCurrentTime} isPlaying={isPlaying} setIsPlaying={setIsPlaying} zoom={timelineZoom} setZoom={setTimelineZoom} selectedId={selectedInstanceId} setSelectedId={setSelectedInstanceId} onSplit={onSplit} />
+            <Timeline items={timelineItems} setItems={setTimelineItems} currentTime={currentTime} setCurrentTime={setCurrentTime} isPlaying={isPlaying} setIsPlaying={setIsPlaying} zoom={timelineZoom} setZoom={setTimelineZoom} selectedId={selectedInstanceId} setSelectedId={setSelectedInstanceId} onSplit={onSplit} onCaptureFrame={handleCaptureFrame} />
           </Panel>
         </Group>
       </div>

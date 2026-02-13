@@ -1,5 +1,5 @@
 import React, { memo, useMemo, useState, useEffect } from 'react';
-import { Film, Music, Image as ImageIcon, Code2, Sparkles } from 'lucide-react';
+import { Film, Music, Image as ImageIcon, Code2, Sparkles, ChevronDown, Camera } from 'lucide-react';
 import { TrackItem, ASSET_COLORS } from '../../types';
 import { Waveform } from './Waveform';
 
@@ -40,8 +40,7 @@ class ThumbnailGenerator {
     this.video.muted = true;
     this.video.crossOrigin = "anonymous";
     this.canvas = document.createElement('canvas');
-    this.canvas.width = 160;
-    this.canvas.height = 90;
+    // We no longer hardcode width/height here
   }
 
   public request(url: string, time: number, cb: (url: string) => void) {
@@ -67,6 +66,11 @@ class ThumbnailGenerator {
           this.video!.onerror = resolve;
         });
       }
+
+      // --- THE FIX: Match the video's actual resolution ---
+      this.canvas.width = this.video.videoWidth;
+      this.canvas.height = this.video.videoHeight;
+
       this.video.currentTime = task.time;
       await new Promise((resolve) => {
         const onSeeked = () => {
@@ -77,10 +81,12 @@ class ThumbnailGenerator {
         setTimeout(resolve, 1000); 
       });
 
-      const ctx = this.canvas.getContext('2d');
+      const ctx = this.canvas.getContext('2d', { alpha: false }); // Performance boost
       if (ctx) {
         ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
-        const dataUrl = this.canvas.toDataURL('image/jpeg', 0.6);
+        
+        // Increase quality to 0.95 or 1.0 for the freeze frame
+        const dataUrl = this.canvas.toDataURL('image/jpeg', 0.95);
         this.cache.set(task.key, dataUrl);
         task.cb(dataUrl);
       }
@@ -162,10 +168,11 @@ interface TimelineItemProps {
   items: TrackItem[];
   playheadTime: number;
   onSnap: (time: number | null) => void;
+  onCaptureFrame: (name: string, dataUrl: string) => void;
 }
 
 export const TimelineItem = memo(({ 
-  item, zoom, selectedId, setSelectedId, setItems, trackCount, items, playheadTime, onSnap 
+  item, zoom, selectedId, setSelectedId, setItems, trackCount, items, playheadTime, onSnap, onCaptureFrame
 }: TimelineItemProps) => {
   const isSelected = selectedId === item.instanceId;
   const isImage = item.type === 'image';
@@ -174,6 +181,21 @@ export const TimelineItem = memo(({
   const clipWidth = safeDuration * zoom;
   const styleConfig = ASSET_COLORS[item.type] || ASSET_COLORS.video;
   const accentHex = getHexFromType(item.type);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const isVideoContent = ['video', 'html', 'manim'].includes(item.type);
+
+  const handleCaptureFreezeFrame = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsMenuOpen(false);
+
+    // Calculate the exact time within the clip where the playhead is currently sitting
+    const timeInClip = (playheadTime - item.startTime) + (item.startTimeOffset || 0);
+    
+    // Request a frame from your singleton generator
+    generator.request(item.url, timeInClip, (dataUrl) => {
+      onCaptureFrame(`${item.name}_freeze_${Math.round(timeInClip)}s`, dataUrl);
+    });
+  };
 
   const handleFadeDrag = (type: 'in' | 'out', e: React.MouseEvent) => {
     if (isImage) return;
@@ -267,15 +289,46 @@ export const TimelineItem = memo(({
   };
 
   return (
-    <div className="absolute group select-none" style={{ left: item.startTime * zoom, top: item.layer * TRACK_HEIGHT, width: clipWidth, height: TRACK_HEIGHT, zIndex: isSelected ? 50 : 10, willChange: 'left, width, top' }}>
-      {/* Ghost Layer */}
-      {isSelected && (
-        <div className={`absolute h-[54px] top-[5px] border border-dashed rounded-lg pointer-events-none opacity-20 ${styleConfig.bg} ${styleConfig.border}`} style={{ left: -(item.startTimeOffset || 0) * zoom, width: safeSourceDuration * zoom, zIndex: -1 }} />
+    <div 
+      className="absolute group select-none" 
+      style={{ 
+        left: item.startTime * zoom, 
+        top: item.layer * TRACK_HEIGHT, 
+        width: clipWidth, 
+        height: TRACK_HEIGHT, 
+        zIndex: isSelected ? 50 : 10, 
+        willChange: 'left, width, top' 
+      }}
+    >
+      {/* 1. GHOST LAYER (Background indicator for trimmed parts) */}
+      {isSelected && !isImage && (
+        <div 
+          className={`absolute h-[54px] top-[5px] border border-dashed rounded-lg pointer-events-none ${styleConfig.border}`} 
+          style={{ 
+            left: -(item.startTimeOffset || 0) * zoom, 
+            width: safeSourceDuration * zoom, 
+            zIndex: -1,
+            borderOpacity: 1, // Ensures the stroke is fully visible
+          }} 
+        >
+          {/* Background-only layer to preserve your preferred styleConfig.bg */}
+          <div className={`absolute inset-0 rounded-lg opacity-50 ${styleConfig.bg}`} />
+        </div>
       )}
 
-      {/* Main Clip Content */}
-      <div onMouseDown={(e) => handleAction(e, 'move')} className={`absolute top-[5px] left-0 right-0 h-[54px] border flex flex-col overflow-hidden rounded-lg transition-all ${isSelected ? `${styleConfig.bg} ${styleConfig.accent} shadow-lg shadow-black/40` : `bg-[#18181b] border-white/10 hover:border-white/20`}`}>
-        <div className="h-5 flex items-center px-2 gap-1.5 bg-black/40 border-b border-white/5 pointer-events-none z-10 overflow-hidden">
+      {/* 2. MAIN CLIP CONTENT */}
+      <div 
+        onMouseDown={(e) => handleAction(e, 'move')} 
+        className={`absolute top-[5px] left-0 right-0 h-[54px] border flex flex-col rounded-lg transition-all ${
+          isSelected 
+            ? `${styleConfig.bg} ${styleConfig.accent} shadow-lg shadow-black/40` 
+            : `bg-[#18181b] border-white/10 hover:border-white/20`
+        } ${isMenuOpen ? 'z-[100]' : 'overflow-hidden'}`}
+      >
+        {/* HEADER BAR - Bumped to z-40 to sit above trim handles (z-30) */}
+        <div 
+          className="h-5 flex items-center px-2 gap-1.5 bg-black/40 border-b border-white/5 relative shrink-0 z-40"
+        >
           <div className={`shrink-0 flex items-center ${styleConfig.text}`}>
             {item.type === 'video' && <Film size={11} />}
             {item.type === 'audio' && <Music size={11} />}
@@ -283,40 +336,95 @@ export const TimelineItem = memo(({
             {item.type === 'html' && <Code2 size={11} />}
             {item.type === 'manim' && <Sparkles size={11} />}
           </div>
-          <span className="truncate text-[8px] font-black uppercase tracking-tight flex-1 text-gray-200">{item.name}</span>
+          
+          <span className="truncate text-[8px] font-black uppercase tracking-tight flex-1 text-gray-200 pointer-events-none">
+            {item.name}
+          </span>
+        
+          {/* CHEVRON MENU */}
+          {isVideoContent && (
+            <div className="relative pointer-events-auto h-full flex items-center z-50">
+              <button 
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setIsMenuOpen(!isMenuOpen); 
+                }}
+                className="hover:bg-white/10 p-0.5 rounded transition-colors text-gray-400 hover:text-white"
+              >
+                <ChevronDown size={10} className={`transition-transform ${isMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isMenuOpen && (
+                <div className="absolute top-0 right-0 overflow-visible">
+                  <div 
+                    className="fixed inset-0 z-[100]" 
+                    onMouseDown={(e) => { e.stopPropagation(); setIsMenuOpen(false); }} 
+                  />
+                  <div className="absolute top-6 right-0 w-32 bg-[#18181b] border border-white/10 rounded-md shadow-2xl z-[101] py-1 animate-in fade-in zoom-in-95 duration-100">
+                    <button 
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={handleCaptureFreezeFrame}
+                      className="w-full px-2 py-1.5 flex items-center gap-2 text-[9px] font-bold text-gray-300 hover:bg-indigo-600 hover:text-white transition-colors text-left"
+                    >
+                      <Camera size={10} />
+                      CAPTURE FRAME
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="relative flex-1 pointer-events-none">
+        {/* CLIP BODY - Changed flex-1 to fixed h-[34px] to prevent the waveform "jump" */}
+        <div className="relative h-[34px] pointer-events-none overflow-hidden">
           <ImageSequence item={item} zoom={zoom} clipWidth={clipWidth} />
+          
           {item.type !== 'image' && item.url && (
             <div className="absolute inset-0 z-0">
-              {/* Pass the accentHex to the Waveform */}
               <Waveform url={item.url} zoom={zoom} width={clipWidth} item={item} color={accentHex} />
             </div>
           )}
+
+          {/* Fade Visualizer Overlay */}
           <svg className="absolute inset-0 w-full h-full z-10" style={{ top: -CLIP_HEADER_HEIGHT, height: TOTAL_CLIP_HEIGHT }}>
-            <path d={generateFadePath(item.fadeInDuration || 0, 'in')} fill={accentHex} fillOpacity="0.1" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" opacity="0.4" />
-            <path d={generateFadePath(item.fadeOutDuration || 0, 'out')} fill={accentHex} fillOpacity="0.1" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" opacity="0.4" />
+            <path d={generateFadePath(item.fadeInDuration || 0, 'in')} fill={accentHex} fillOpacity="0.1" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" opacity="1" />
+            <path d={generateFadePath(item.fadeOutDuration || 0, 'out')} fill={accentHex} fillOpacity="0.1" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" opacity="1" />
           </svg>
         </div>
 
-        {/* Trim Handles */}
-        <div onMouseDown={(e) => handleAction(e, 'left')} className="absolute left-0 top-0 bottom-0 w-4 cursor-col-resize z-30 flex items-center justify-center group/trim-left hover:bg-white/5 transition-colors">
-          <div className="opacity-0 group-hover/trim-left:opacity-100 transition-opacity"><SideHandle orientation="v" zoom={zoom} color={accentHex} /></div>
+        {/* TRIM HANDLES (Edges) */}
+        <div 
+          onMouseDown={(e) => handleAction(e, 'left')} 
+          className="absolute left-0 top-0 bottom-0 w-4 cursor-col-resize z-30 flex items-center bg-white opacity-0 hover:opacity-30 transition-opacity justify-center transition-colors"
+        >
+          <SideHandle orientation="v" zoom={zoom} color={accentHex} />
         </div>
-        <div onMouseDown={(e) => handleAction(e, 'right')} className="absolute right-0 top-0 bottom-0 w-4 cursor-col-resize z-30 flex items-center justify-center group/trim-right hover:bg-white/5 transition-colors">
-          <div className="opacity-0 group-hover/trim-right:opacity-100 transition-opacity"><SideHandle orientation="v" zoom={zoom} color={accentHex} /></div>
+        <div 
+          onMouseDown={(e) => handleAction(e, 'right')} 
+          className="absolute right-0 top-0 bottom-0 w-4 cursor-col-resize z-30 flex items-center bg-white opacity-0 hover:opacity-30 transition-opacity justify-center transition-colors"
+        >
+          <SideHandle orientation="v" zoom={zoom} color={accentHex} />
         </div>
       </div>
 
-      {/* Fade Handles */}
+      {/* 3. FADE HANDLES (Dots) */}
       {isSelected && !isImage && (
         <div className="absolute inset-0 pointer-events-none z-40">
-          <div onMouseDown={(e) => handleFadeDrag('in', e)} className="absolute top-5 translate-x-[-50%] cursor-ew-resize pointer-events-auto" style={{ left: (Math.min(item.fadeInDuration || 0, safeDuration / 2) * zoom) }}>
-             <div className="w-2.5 h-2.5 bg-white rounded-full border-2 shadow-xl" style={{ borderColor: accentHex }} />
+          <div 
+            onMouseDown={(e) => handleFadeDrag('in', e)} 
+            className="absolute top-5 translate-x-[-50%] cursor-ew-resize pointer-events-auto" 
+            style={{ left: (Math.min(item.fadeInDuration || 0, safeDuration / 2) * zoom) }}
+          >
+            <div className="w-2.5 h-2.5 bg-white rounded-full border-2 shadow-xl" style={{ borderColor: accentHex }} />
           </div>
-          <div onMouseDown={(e) => handleFadeDrag('out', e)} className="absolute top-5 translate-x-[-50%] cursor-ew-resize pointer-events-auto" style={{ left: (safeDuration - Math.min(item.fadeOutDuration || 0, safeDuration / 2)) * zoom }}>
-             <div className="w-2.5 h-2.5 bg-white rounded-full border-2 shadow-xl" style={{ borderColor: accentHex }} />
+          <div 
+            onMouseDown={(e) => handleFadeDrag('out', e)} 
+            className="absolute top-5 translate-x-[-50%] cursor-ew-resize pointer-events-auto" 
+            style={{ left: (safeDuration - Math.min(item.fadeOutDuration || 0, safeDuration / 2)) * zoom }}
+          >
+            <div className="w-2.5 h-2.5 bg-white rounded-full border-2 shadow-xl" style={{ borderColor: accentHex }} />
           </div>
         </div>
       )}

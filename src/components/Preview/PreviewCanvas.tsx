@@ -93,6 +93,11 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
 
   // --- MOUSE PANNING HANDLERS ---
   const handleStartPanning = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('.rotation-handle')) {
+      return; // Do nothing, let the handle manage its own events
+    }
+
     const isMiddleMouse = e.button === 1;
     if (tool === 'hand' || isMiddleMouse) {
       if (isMiddleMouse) e.preventDefault();
@@ -206,67 +211,87 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
         {children}
       </div>
 
-      {/* FLOATING UI - Does not re-render during panning/zooming */}
+      {/* FLOATING UI - Compact & Fixed */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 z-[400]" onClick={e => e.stopPropagation()}>
-        <div className="flex gap-1 bg-black/80 backdrop-blur-xl border border-white/10 p-1.5 rounded-2xl h-12 shadow-2xl">
-          <button onClick={() => setTool('select')} className={`px-4 rounded-xl transition-all ${tool === 'select' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-gray-400 hover:text-white'}`}><MousePointer2 size={18} /></button>
-          <button onClick={() => setTool('hand')} className={`px-4 rounded-xl transition-all ${tool === 'hand' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-gray-400 hover:text-white'}`}><Hand size={18} /></button>
-        </div>
-
-        {/* Resolution Menu */}
-        <div className="relative">
-          <button
-            onClick={() => setActiveMenu(activeMenu === 'res' ? null : 'res')}
-            className="h-12 px-5 bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl text-[11px] font-bold text-white flex items-center gap-3 uppercase tracking-wider hover:border-indigo-500/50 transition-all shadow-2xl"
+        
+        {/* Tool Switcher - Slimmer version */}
+        <div className="flex gap-0.5 bg-[#080808]/95 backdrop-blur-3xl border border-white/10 p-1 rounded-2xl shadow-2xl">
+          <button 
+            onClick={() => setTool('select')} 
+            className={`px-3 py-1.5 rounded-xl transition-all duration-300 ${tool === 'select' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40' : 'text-gray-500 hover:text-gray-300'}`}
           >
-            <Settings2 size={16} className="text-indigo-400"/>
-            {resolution.w} × {resolution.h}
-            <ChevronDown size={14} className={`transition-transform ${activeMenu === 'res' ? 'rotate-180' : ''}`} />
+            <MousePointer2 size={16} />
           </button>
-
-          {activeMenu === 'res' && (
-            <div className="absolute top-14 left-0 w-56 bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl p-1.5 z-[500]">
-              <div className="p-2 text-[9px] font-bold text-white/30 uppercase tracking-widest border-b border-white/5 mb-1.5">Presets</div>
-              {presets.map((p) => (
-                <button
-                  key={p.name}
-                  onClick={() => { setResolution({ w: p.w, h: p.h }); setActiveMenu(null); }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[11px] font-bold transition-all ${resolution.w === p.w && resolution.h === p.h ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
-                >
-                  <span className="flex items-center gap-2">{p.icon} {p.name}</span>
-                  <span className="opacity-40 font-mono text-[10px]">{p.w}×{p.h}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Zoom Menu */}
-        <div className="relative">
-          <button
-            onClick={() => setActiveMenu(activeMenu === 'zoom' ? null : 'zoom')}
-            className="h-12 px-5 bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl text-[11px] font-bold text-white flex items-center gap-2 uppercase tracking-wider hover:border-indigo-500/50 transition-all shadow-2xl"
+          <button 
+            onClick={() => setTool('hand')} 
+            className={`px-3 py-1.5 rounded-xl transition-all duration-300 ${tool === 'hand' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40' : 'text-gray-500 hover:text-gray-300'}`}
           >
-            {Math.round(zoom * 100)}% <ChevronDown size={14} className={`transition-transform ${activeMenu === 'zoom' ? 'rotate-180' : ''}`} />
+            <Hand size={16} />
           </button>
-          
-          {activeMenu === 'zoom' && (
-            <div className="absolute top-14 left-0 w-36 bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl p-1.5 z-[500]">
-              {[0.25, 0.5, 0.75, 1, 1.5, 2].map(p => (
-                <button key={p} onClick={() => { setZoom(p); setActiveMenu(null); }} className="w-full px-4 py-2 text-[11px] text-left font-bold text-gray-400 hover:bg-indigo-600 hover:text-white transition-colors uppercase font-mono rounded-xl">
-                  {Math.round(p * 100)}%
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
-        {/* Mute Button */}
+        {/* Resolution & Zoom Bar - Slimmer h-9 */}
+        <div className="flex gap-0.5 bg-[#080808]/95 backdrop-blur-3xl border border-white/10 p-1 rounded-2xl shadow-2xl">
+          {/* Resolution Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setActiveMenu(activeMenu === 'res' ? null : 'res')}
+              className="h-7 px-3 hover:bg-white/5 rounded-lg text-[9px] font-black text-white/90 flex items-center gap-2 uppercase tracking-widest transition-all flex-shrink-0"
+            >
+              <Settings2 size={12} className="text-indigo-500"/>
+              <span className="tabular-nums flex-shrink-0">{resolution.w} × {resolution.h}</span>
+            </button>
+
+            {activeMenu === 'res' && (
+              <div className="absolute top-10 left-0 w-48 bg-[#0d0d0d] border border-white/10 rounded-xl overflow-hidden shadow-2xl p-1 z-[500] animate-in fade-in zoom-in-95 duration-200">
+                {presets.map((p) => (
+                  <button
+                    key={p.name}
+                    onClick={() => { setResolution({ w: p.w, h: p.h }); setActiveMenu(null); }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[10px] font-bold transition-all ${resolution.w === p.w && resolution.h === p.h ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    <span>{p.name}</span>
+                    <span className="opacity-40 font-mono text-[9px]">{p.w}×{p.h}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="w-px h-4 bg-white/10 self-center mx-0.5" />
+
+          {/* Zoom Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setActiveMenu(activeMenu === 'zoom' ? null : 'zoom')}
+              className="h-7 px-3 hover:bg-white/5 rounded-lg text-[9px] font-black text-white/90 flex items-center gap-2 uppercase tracking-widest transition-all flex-shrink-0"
+            >
+              <span className="tabular-nums flex-shrink-0">{Math.round(zoom * 100)}%</span>
+              <ChevronDown size={12} className={`transition-transform duration-300 opacity-30 ${activeMenu === 'zoom' ? 'rotate-180' : ''}`} />
+            </button>
+
+            {activeMenu === 'zoom' && (
+              <div className="absolute top-10 left-0 w-28 bg-[#0d0d0d] border border-white/10 rounded-xl overflow-hidden shadow-2xl p-1 z-[500] animate-in fade-in zoom-in-95 duration-200">
+                {[0.25, 0.5, 0.75, 1, 1.5, 2].map(p => (
+                  <button 
+                    key={p} 
+                    onClick={() => { setZoom(p); setActiveMenu(null); }} 
+                    className={`w-full px-3 py-2 text-[10px] text-left font-black transition-all uppercase rounded-lg ${zoom === p ? 'text-indigo-400 bg-indigo-500/10' : 'text-gray-500 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    {Math.round(p * 100)}%
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Audio Toggle - Compact h-9 */}
         <button
           onClick={() => setIsMuted(!isMuted)}
-          className={`h-12 w-12 flex items-center justify-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl transition-all shadow-2xl ${!isMuted ? 'text-indigo-400 border-indigo-500/30' : 'text-gray-500'}`}
+          className={`h-9 w-9 flex items-center justify-center bg-[#080808]/95 backdrop-blur-3xl border border-white/10 rounded-2xl transition-all shadow-2xl ${!isMuted ? 'text-indigo-400 bg-indigo-500/10' : 'text-gray-500'}`}
         >
-          {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+          {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
       </div>
     </div>

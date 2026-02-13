@@ -73,14 +73,40 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     >
       {/* 1. CREATION TOOLS */}
       <div className="grid grid-cols-3 gap-2 mb-4 shrink-0">
-        <button onClick={() => onCreateDynamic('html')} className={`py-3 ${ASSET_COLORS.html.bg} border ${ASSET_COLORS.html.border} rounded-xl hover:brightness-125 transition-all flex flex-col items-center justify-center gap-1 ${ASSET_COLORS.html.text} cursor-pointer`}>
-          <Code2 size={16}/><span className="text-[8px] font-black uppercase tracking-wider">HTML</span>
+        {/* HTML Button */}
+        <button 
+          onClick={() => onCreateDynamic('html')} 
+          className={`group py-3 ${ASSET_COLORS.html.bg} border ${ASSET_COLORS.html.border} rounded-xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${ASSET_COLORS.html.text} active:scale-95`}
+        >
+          <Code2 
+            size={16} 
+            className="transition-all duration-300 ease-out group-hover:scale-125 group-hover:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" 
+          />
+          <span className="text-[8px] font-black uppercase tracking-wider opacity-70 group-hover:opacity-100 transition-opacity">HTML</span>
         </button>
-        <button onClick={() => onCreateDynamic('manim')} className={`py-3 ${ASSET_COLORS.manim.bg} border ${ASSET_COLORS.manim.border} rounded-xl hover:brightness-125 transition-all flex flex-col items-center justify-center gap-1 ${ASSET_COLORS.manim.text} cursor-pointer`}>
-          <Sparkles size={16}/><span className="text-[8px] font-black uppercase tracking-wider">Manim</span>
+
+        {/* Manim Button */}
+        <button 
+          onClick={() => onCreateDynamic('manim')} 
+          className={`group py-3 ${ASSET_COLORS.manim.bg} border ${ASSET_COLORS.manim.border} rounded-xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${ASSET_COLORS.manim.text} active:scale-95`}
+        >
+          <Sparkles 
+            size={16} 
+            className="transition-all duration-300 ease-out group-hover:scale-125 group-hover:drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
+          />
+          <span className="text-[8px] font-black uppercase tracking-wider opacity-70 group-hover:opacity-100 transition-opacity">Manim</span>
         </button>
-        <button onClick={onCreateTTS} className={`py-3 ${ASSET_COLORS.audio.bg} border ${ASSET_COLORS.audio.border} rounded-xl hover:brightness-125 transition-all flex flex-col items-center justify-center gap-1 ${ASSET_COLORS.audio.text} cursor-pointer`}>
-          <Mic size={16}/><span className="text-[8px] font-black uppercase tracking-wider">TTS</span>
+
+        {/* TTS Button */}
+        <button 
+          onClick={onCreateTTS} 
+          className={`group py-3 ${ASSET_COLORS.audio.bg} border ${ASSET_COLORS.audio.border} rounded-xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${ASSET_COLORS.audio.text} active:scale-95`}
+        >
+          <Mic 
+            size={16} 
+            className="transition-all duration-300 ease-out group-hover:scale-125 group-hover:drop-shadow-[0_0_8px_rgba(244,63,94,0.8)]" 
+          />
+          <span className="text-[8px] font-black uppercase tracking-wider opacity-70 group-hover:opacity-100 transition-opacity">TTS</span>
         </button>
       </div>
 
