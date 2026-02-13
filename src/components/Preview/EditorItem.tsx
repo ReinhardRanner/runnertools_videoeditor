@@ -257,12 +257,10 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
         style={{
           transform: `translate(${localState.x}px, ${localState.y}px) rotate(${localState.rotation}deg)`,
           width: localState.width, height: localState.height,
-          zIndex: isSelected ? 1000 : 100,
           pointerEvents: isDragging || isResizing || isRotating ? 'none' : 'auto',
         }}
         onPointerDownCapture={(e) => { if (e.button === 0) onSelect(); }}
         onPointerDown={(e) => {
-            console.log('PointerDown on Item:', id, e);
             if (e.button === 0) onSelect();
         }}
       >

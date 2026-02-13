@@ -1,16 +1,27 @@
-import React from 'react';
-import { CheckCircle2, Loader2, X, Film, Zap } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { CheckCircle2, Loader2, X, Film, Zap, ArrowRight } from 'lucide-react';
 
 interface ExportOverlayProps {
   status: 'idle' | 'writing' | 'rendering' | 'done';
   progress: number;
   onCancel?: () => void;
+  onClose: () => void; // Added this to let the parent reset the state
 }
 
-export const ExportOverlay: React.FC<ExportOverlayProps> = ({ status, progress, onCancel }) => {
+export const ExportOverlay: React.FC<ExportOverlayProps> = ({ status, progress, onCancel, onClose }) => {
   if (status === 'idle') return null;
 
   const isDone = status === 'done';
+
+  // Optional: Auto-close after a few seconds if you want
+  /*
+  useEffect(() => {
+    if (isDone) {
+      const timer = setTimeout(onClose, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [isDone, onClose]);
+  */
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-xl animate-in fade-in duration-500">
@@ -30,9 +41,7 @@ export const ExportOverlay: React.FC<ExportOverlayProps> = ({ status, progress, 
             </div>
           ) : (
             <div className="relative w-24 h-24">
-              {/* Outer Ring */}
               <div className="absolute inset-0 border-4 border-white/5 rounded-full" />
-              {/* Animated Progress Ring */}
               <svg className="absolute inset-0 w-full h-full -rotate-90">
                 <circle
                   cx="48"
@@ -64,7 +73,7 @@ export const ExportOverlay: React.FC<ExportOverlayProps> = ({ status, progress, 
             {status === 'rendering' && "Synthesizing Video"}
             {status === 'done' && "Export Complete"}
           </h2>
-          <p className="text-gray-500 text-[10px] font-bold uppercase tracking-widest leading-relaxed">
+          <p className="text-gray-500 text-[10px] font-bold uppercase tracking-widest leading-relaxed whitespace-pre-line">
             {status !== 'done' 
               ? "Optimization in progress.\nPlease do not close this tab." 
               : "Your master file has been\nsaved to your directory."}
@@ -94,9 +103,13 @@ export const ExportOverlay: React.FC<ExportOverlayProps> = ({ status, progress, 
             )}
             
             {isDone && (
-              <div className="flex items-center gap-2 px-6 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-[10px] font-black text-emerald-500 uppercase tracking-widest">
-                Ready for Production
-              </div>
+              <button 
+                onClick={onClose}
+                className="group flex items-center gap-2 px-8 py-3 bg-emerald-500 hover:bg-emerald-400 border border-emerald-400/20 rounded-2xl text-[10px] font-black text-white uppercase tracking-widest transition-all active:scale-95 shadow-[0_10px_20px_rgba(16,185,129,0.2)]"
+              >
+                Done
+                <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+              </button>
             )}
           </div>
         </div>

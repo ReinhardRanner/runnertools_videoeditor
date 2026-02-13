@@ -59,7 +59,7 @@ export default function App() {
   const FORMATS = ['mp4', 'webm', 'mov'];
 
   // --- Custom Hooks ---
-  const { handleExport, cancelExport, progress, status, loaded: ffmpegLoaded } = useFFmpeg(resolution);
+  const { handleExport, cancelExport, resetStatus, progress, status, loaded: ffmpegLoaded } = useFFmpeg(resolution);
   const { onGenerateHTML, onRenderVideo, cancel: cancelGeneration, canCancel, status: genStatus } = useGenerativeAI();
   const [dynamicModal, setDynamicModal] = useState<{ open: boolean, type: 'html' | 'manim', asset: Asset } | null>(null);
   const dynamicModalRef = useRef(dynamicModal);
@@ -392,6 +392,10 @@ export default function App() {
                         id={item.instanceId}
                         type={item.type}
                         name={item.name}
+
+                        style={{
+                          zIndex: 10 - item.layer,
+                        }}
                         
                         // Position & Props
                         isSelected={selectedInstanceId === item.instanceId}
@@ -451,8 +455,6 @@ export default function App() {
         onCodeChange={(code) => {
           const activeId = dynamicModal?.asset?.id;
           if (!activeId) return;
-          console.log('Code updated in modal:', code);
-          console.log('Current modal asset before update:', dynamicModalRef.current?.asset);
           const modal = dynamicModalRef.current;
           setAssets(prev => prev.map(a => a.id === modal?.asset!.id ? { ...a, code } : a));
           setDynamicModal(prev => prev?.asset ? { ...prev, asset: { ...prev.asset, code } } : prev);
@@ -473,7 +475,7 @@ export default function App() {
         onGenerate={handleTTSGenerate}
         isGenerating={isTTSGenerating}
       />
-      <ExportOverlay status={status} progress={progress} onCancel={cancelExport} />
+      <ExportOverlay status={status} progress={progress} onCancel={cancelExport} onClose={resetStatus} />
     </div>
   );
 }
