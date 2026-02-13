@@ -3,7 +3,7 @@ import {
   Settings2, Move, Volume2, RotateCw, Trash2, 
   ChevronDown, ChevronRight, Film, Music, Image as ImageIcon 
 } from 'lucide-react';
-import { TrackItem } from '../types';
+import { TrackItem, ASSET_COLORS } from '../types';
 
 interface PropertiesProps {
   item: TrackItem | undefined;
@@ -13,12 +13,13 @@ interface PropertiesProps {
 
 // --- Helper for Type Icons ---
 const getTypeStyles = (type: string) => {
-  switch (type) {
-    case 'video': return { icon: Film, color: 'text-sky-400', bg: 'bg-sky-400/10' };
-    case 'audio': return { icon: Music, color: 'text-indigo-400', bg: 'bg-indigo-400/10' };
-    case 'image': return { icon: ImageIcon, color: 'text-emerald-400', bg: 'bg-emerald-400/10' };
-    default: return { icon: Settings2, color: 'text-gray-400', bg: 'bg-gray-400/10' };
-  }
+  const colors = ASSET_COLORS[type];
+  const iconMap: Record<string, any> = { video: Film, audio: Music, image: ImageIcon, html: Film, manim: Film };
+  return {
+    icon: iconMap[type] || Settings2,
+    color: colors?.text || 'text-gray-400',
+    bg: colors?.bg || 'bg-gray-400/10',
+  };
 };
 
 // --- Reusable Sub-Components ---
@@ -118,6 +119,32 @@ export const PropertiesPanel: React.FC<PropertiesProps> = ({ item, onUpdate, onD
             <InputField label="Height" value={Math.round(item.height)} onChange={(val: number) => onUpdate({height: val})} />
           </div>
           <InputField label="Rotation" icon={RotateCw} value={Math.round(item.rotation)} onChange={(val: number) => onUpdate({rotation: val})} />
+          {item.type !== 'audio' && (
+            <div className="bg-white/5 p-2 rounded-xl border border-white/5 hover:border-white/10 transition-colors group">
+              <p className="text-[7px] text-gray-500 font-black mb-1 uppercase tracking-widest group-hover:text-gray-300 transition-colors">
+                Opacity
+              </p>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range" min="0" max="1" step="0.01" value={item.opacity}
+                  onChange={(e) => {
+                    let val = parseFloat(e.target.value);
+                    if (Math.abs(val - 1.0) < 0.05) val = 1.0;
+                    onUpdate({ opacity: val });
+                  }}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+                <span className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-md border border-white/5">
+                  <input
+                    type="number" value={Math.round(item.opacity * 100)}
+                    onChange={(e) => onUpdate({ opacity: Math.min(1, Math.max(0, (parseInt(e.target.value) || 0) / 100)) })}
+                    className="bg-transparent text-indigo-400 text-right outline-none w-8 text-[10px] font-bold"
+                  />
+                  <span className="text-indigo-400 opacity-40 text-[9px]">%</span>
+                </span>
+              </div>
+            </div>
+          )}
         </CollapsibleSection>
 
         {/* --- Audio Section --- */}
@@ -130,28 +157,28 @@ export const PropertiesPanel: React.FC<PropertiesProps> = ({ item, onUpdate, onD
           >
             <div className="space-y-4">
               {/* Volume Slider Block */}
-              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                <input 
-                  type="range" min="0" max="2" step="0.01" value={item.volume} 
-                  onChange={(e) => {
-                    let val = parseFloat(e.target.value);
-                    if (Math.abs(val - 1.0) < 0.05) val = 1.0;
-                    onUpdate({ volume: val });
-                  }} 
-                  className="w-full accent-indigo-500 cursor-pointer mb-4" 
-                />
-                <div className="flex justify-between items-center font-mono">
-                  <span className="text-[7px] font-black uppercase text-gray-500 tracking-widest">
-                    {item.volume === 1.0 ? "Unity Gain" : "Output Level"}
-                  </span>
-                  <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-md border border-white/5">
+              <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                <div className="text-[7px] font-black uppercase text-gray-500 tracking-widest">
+                  Volume
+                </div>
+                <div className="flex items-center gap-3 mt-1">
+                  <input 
+                    type="range" min="0" max="2" step="0.01" value={item.volume} 
+                    onChange={(e) => {
+                      let val = parseFloat(e.target.value);
+                      if (Math.abs(val - 1.0) < 0.05) val = 1.0;
+                      onUpdate({ volume: val });
+                    }} 
+                    className="w-full accent-indigo-500 cursor-pointer" 
+                  />
+                  <span className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-md border border-white/5">
                     <input 
                       type="number" value={Math.round(item.volume * 100)}
                       onChange={(e) => onUpdate({ volume: (parseInt(e.target.value) || 0) / 100 })}
                       className="bg-transparent text-indigo-400 text-right outline-none w-8 text-[10px] font-bold"
                     />
                     <span className="text-indigo-400 opacity-40 text-[9px]">%</span>
-                  </div>
+                  </span>
                 </div>
               </div>
 

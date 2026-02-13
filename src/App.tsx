@@ -60,8 +60,10 @@ export default function App() {
 
   // --- Custom Hooks ---
   const { handleExport, cancelExport, progress, status, loaded: ffmpegLoaded } = useFFmpeg(resolution);
-  const { generate, isGenerating, status: genStatus } = useGenerativeAI();
-  const [dynamicModal, setDynamicModal] = useState<{ open: boolean, type: 'html' | 'manim', asset?: Asset } | null>(null);
+  const { onGenerateHTML, onRenderVideo, cancel: cancelGeneration, canCancel, status: genStatus } = useGenerativeAI();
+  const [dynamicModal, setDynamicModal] = useState<{ open: boolean, type: 'html' | 'manim', asset: Asset } | null>(null);
+  const dynamicModalRef = useRef(dynamicModal);
+  dynamicModalRef.current = dynamicModal;
 
   // --- TTS State ---
   const [ttsModalOpen, setTtsModalOpen] = useState(false);
@@ -109,26 +111,35 @@ export default function App() {
       const id = Math.random().toString(36).substr(2, 9);
       if (file.type.startsWith('video')) {
         const v = document.createElement('video'); v.src = url;
-        v.onloadedmetadata = () => setAssets(prev => [...prev, { id, name: file.name, type: 'video', url, file, sourceDuration: v.duration }]);
+        v.onloadedmetadata = () => setAssets(prev => [...prev, { id, name: file.name, type: 'video', url, file, duration: v.duration, resolution: { w: v.videoWidth, h: v.videoHeight } }]);
       } else if (file.type.startsWith('audio')) {
         const a = new Audio(); a.src = url;
-        a.onloadedmetadata = () => setAssets(prev => [...prev, { id, name: file.name, type: 'audio', url, file, sourceDuration: a.duration }]);
+        a.onloadedmetadata = () => setAssets(prev => [...prev, { id, name: file.name, type: 'audio', url, file, duration: a.duration }]);
       } else if (file.type.startsWith('image')) {
-        setAssets(prev => [...prev, { id, name: file.name, type: 'image', url, file, sourceDuration: 3600 }]);
+        setAssets(prev => [...prev, { id, name: file.name, type: 'image', url, file }]);
       }
     });
   };
 
+  const updateAsset = (id: string, updates: Partial<Asset>) => {
+    setAssets(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+    
+    // If the modal is currently looking at this asset, update its view too
+    if (dynamicModalRef.current?.asset?.id === id) {
+      setDynamicModal(prev => prev ? { ...prev, asset: { ...prev.asset!, ...updates } } : null);
+    }
+  };
+
   const addAssetToTimeline = (asset: Asset) => {
-    // Use source dimensions if available (for generated content), otherwise use defaults
-    const itemWidth = asset.sourceWidth || 400;
-    const itemHeight = asset.sourceHeight || 225;
+    const itemWidth = asset.resolution?.w || 400;
+    const itemHeight = asset.resolution?.h || 225;
 
     const newItem: TrackItem = {
       ...asset,
       instanceId: Math.random().toString(36).substr(2, 9),
       startTime: currentTime,
-      duration: asset.sourceDuration,
+      duration: asset.duration,
+      sourceDuration: asset.duration,
       startTimeOffset: 0,
       layer: timelineItems.length,
       x: (resolution.w / 2) - (itemWidth / 2),
@@ -136,6 +147,7 @@ export default function App() {
       width: itemWidth,
       height: itemHeight,
       rotation: 0,
+      opacity: 1,
       volume: 1,
       fadeInDuration: 0.5,
       fadeOutDuration: 0.5
@@ -149,47 +161,74 @@ export default function App() {
     setTimelineItems(prev => prev.map(item => item.instanceId === selectedInstanceId ? { ...item, ...updates } : item));
   };
 
-  // In App.tsx
-  const handleAddDynamic = async (
-    prompt: string, 
-    providerId: string, 
-    modelId: string, 
-    duration: number, 
-    res: { w: number, h: number }
-  ) => {
-    // WICHTIG: Die Argumente müssen hier in den generate-Aufruf!
-    const result = await generate(
-      dynamicModal!.type, 
-      prompt, 
-      providerId, 
-      modelId, 
-      duration,
-      res,
-      dynamicModal?.asset?.code
-    );
+  const handleGenerateHTML = async (prompt: string, providerId: string, modelId: string, oldCode?: string): Promise<string> => {
+    const modal = dynamicModalRef.current!;
+    const assetId = modal.asset?.id || crypto.randomUUID();
 
-    if (result) {
-      const assetId = dynamicModal?.asset?.id || Math.random().toString(36).substring(2, 9);
-      const newAsset: Asset = {
+    // 1. Initialize or get the asset
+    const existing = assets.find(a => a.id === assetId);
+    if (!existing) {
+      const newDraft: Asset = {
         id: assetId,
-        name: `${dynamicModal!.type}_${prompt.substring(0, 10)}`,
-        type: dynamicModal!.type,
-        url: result.url,
-        sourceDuration: duration,
-        sourceWidth: res.w,
-        sourceHeight: res.h,
-        code: result.code,
-        prompt: prompt,
+        name: `${modal.type}_${prompt.substring(0, 10)}`,
+        type: modal.type,
+        code: oldCode || '',
+        prompt,
+        duration: 5,
+        isProcessing: true,
+        processStatus: 'Thinking...',
+        processError: null
       };
+      setAssets(prev => [...prev, newDraft]);
+      setDynamicModal({ ...modal, asset: newDraft });
+    } else {
+      updateAsset(assetId, { isProcessing: true, processStatus: 'Refining code...', processError: null, prompt });
+    }
 
-      setAssets(prev =>
-        dynamicModal?.asset
-          ? prev.map(a => a.id === newAsset.id ? newAsset : a)
-          : [...prev, newAsset]
-      );
+    try {
+      const code = await onGenerateHTML(modal.type, prompt, providerId, modelId, oldCode);
+      updateAsset(assetId, { code, isProcessing: false, processStatus: '' });
+      return code;
+    } catch (err: any) {
+      const isCancelled = err.message === 'Cancelled';
+      updateAsset(assetId, { isProcessing: false, ...(!isCancelled && { processError: err.message }) });
+      throw err;
+    }
+  };
 
-      // Update modal with new asset to show preview, but keep it open
-      setDynamicModal({ ...dynamicModal!, asset: newAsset });
+  const handleRenderVideo = async (code: string, duration: number, res: { w: number; h: number }): Promise<string> => {
+    const modal = dynamicModalRef.current!;
+    const assetId = modal.asset?.id;
+    if (!assetId) return "";
+
+    // Set this specific asset to processing
+    updateAsset(assetId, {
+      isProcessing: true,
+      processStatus: 'Rendering 0%',
+      processError: null,
+      code // Save the code used for rendering
+    });
+
+    try {
+      // Note: If your useGenerativeAI hook doesn't support multiple parallel renders, 
+      // you'll need to refactor the hook itself to be stateless.
+      const videoUrl = await onRenderVideo(modal.type, code, duration, res, (progress, statusText) => {
+        updateAsset(assetId, { progress, processStatus: statusText });
+      });
+
+      updateAsset(assetId, {
+        url: videoUrl,
+        duration: duration,
+        resolution: res,
+        isProcessing: false,
+        processStatus: 'Complete'
+      });
+
+      return videoUrl;
+    } catch (err: any) {
+      const isCancelled = err.message === 'Cancelled';
+      updateAsset(assetId, { isProcessing: false, ...(!isCancelled && { processError: err.message }) });
+      throw err;
     }
   };
 
@@ -216,7 +255,7 @@ export default function App() {
         name: `TTS_${text.substring(0, 15)}...`,
         type: 'audio',
         url,
-        sourceDuration: audio.duration,
+        duration: audio.duration,
       };
       setAssets(prev => [...prev, newAsset]);
       setTtsModalOpen(false);
@@ -306,8 +345,33 @@ export default function App() {
               <Panel defaultSize={20} className="bg-bg-surface p-4 border-r border-border-default">
                 <FileExplorer
                   assets={assets} onUpload={handleUpload} onAdd={addAssetToTimeline}
-                  onCreateDynamic={(type) => setDynamicModal({ open: true, type })}
-                  onEditDynamic={(asset) => { setDynamicModal({ open: true, type: asset.type as any, asset }); }}
+                  onDelete={(id) => setAssets(prev => prev.filter(a => a.id !== id))}
+                  onRename={(id, newName) => {
+                    setAssets(prev => prev.map(a => a.id === id ? { ...a, name: newName } : a));
+                    setTimelineItems(prev => prev.map(i => i.id === id ? { ...i, name: newName } : i));
+                  }}
+                  onCreateDynamic={(type) => {
+                    const newAssetId = crypto.randomUUID();
+  
+                    const newAsset: Asset = {
+                      id: newAssetId,
+                      name: `New ${type.toUpperCase()}`,
+                      type: type,
+                      url: '',
+                      code: '',
+                      prompt: '',
+                      isProcessing: false
+                    };
+                    if (type === 'html') {
+                      newAsset.duration = 5;
+                    }
+
+                    setAssets(prev => [...prev, newAsset]);
+                    setDynamicModal({ open: true, type, asset: newAsset });
+                  }}
+                  onEditDynamic={(asset) => {
+                    setDynamicModal({ open: true, type: asset.type as 'html' | 'manim', asset });
+                  }}
                   onCreateTTS={() => setTtsModalOpen(true)}
                 />
               </Panel>
@@ -324,7 +388,7 @@ export default function App() {
                     if (!isVisible) return null;
                     return (
                       <div key={item.instanceId} onMouseDown={(e) => e.stopPropagation()}>
-                        <div id={`target-${item.instanceId}`} className="absolute" style={{ width: item.width, height: item.height, zIndex: 100 - item.layer, transform: `translate(${item.x}px, ${item.y}px) rotate(${item.rotation}deg)` }} onMouseDown={() => setSelectedInstanceId(item.instanceId)}>
+                        <div id={`target-${item.instanceId}`} className="absolute" style={{ width: item.width, height: item.height, zIndex: 100 - item.layer, transform: `translate(${item.x}px, ${item.y}px) rotate(${item.rotation}deg)`, opacity: item.opacity ?? 1 }} onMouseDown={() => setSelectedInstanceId(item.instanceId)}>
                           {item.type === 'audio' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-500/10 border-2 border-dashed border-indigo-500/30 rounded-lg pointer-events-none"><Volume2 className="text-indigo-400 opacity-40" size={48} /><span className="text-[10px] font-black text-indigo-400/40 uppercase mt-2 tracking-tighter">{item.name}</span></div>}
                           <MediaClipPlayer item={item} currentTime={currentTime} isPlaying={isPlaying} isMuted={isPreviewMuted} />
                         </div>
@@ -375,11 +439,35 @@ export default function App() {
 
       {/* --- OVERLAYS --- */}
       <GenerativeModal
+        key={dynamicModal?.asset?.id || `new-session-${dynamicModal?.type}`}
         modal={dynamicModal}
         resolution={resolution}
         onClose={() => setDynamicModal(null)}
-        onGenerate={handleAddDynamic}
-        isGenerating={isGenerating}
+        onGenerateHTML={handleGenerateHTML}
+        onRenderVideo={handleRenderVideo}
+        onCancel={cancelGeneration}
+        onRename={(id, newName) => {
+          setAssets(prev => prev.map(a => a.id === id ? { ...a, name: newName } : a));
+          setTimelineItems(prev => prev.map(i => i.id === id ? { ...i, name: newName } : i));
+          setDynamicModal(prev => prev?.asset?.id === id ? { ...prev, asset: { ...prev.asset!, name: newName } } : prev);
+        }}
+        onCodeChange={(code) => {
+          const activeId = dynamicModal?.asset?.id;
+          if (!activeId) return;
+          console.log('Code updated in modal:', code);
+          console.log('Current modal asset before update:', dynamicModalRef.current?.asset);
+          const modal = dynamicModalRef.current;
+          setAssets(prev => prev.map(a => a.id === modal?.asset!.id ? { ...a, code } : a));
+          setDynamicModal(prev => prev?.asset ? { ...prev, asset: { ...prev.asset, code } } : prev);
+        }}
+        onUpdateAsset={(id, updates) => {
+          setAssets(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+          // Also sync the modal's internal view if it's the active asset
+          if (dynamicModal?.asset?.id === id) {
+            setDynamicModal(prev => prev ? { ...prev, asset: { ...prev.asset!, ...updates } } : null);
+          }
+        }}
+        canCancel={canCancel}
         status={genStatus}
       />
       <TTSModal

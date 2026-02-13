@@ -99,16 +99,18 @@ export const useFFmpeg = (resolution: { w: number, h: number }) => {
         const idx = items.findIndex(orig => orig.instanceId === cfg.instanceId);
         const rad = (cfg.rotation * Math.PI) / 180;
         
-        const src = cfg.type === 'image' 
-          ? `[${idx}:v]format=rgba,` 
+        const src = cfg.type === 'image'
+          ? `[${idx}:v]format=rgba,`
           : `[${idx}:v]trim=start=${cfg.startTimeOffset}:duration=${cfg.duration},`;
-        
+
         const sW = Math.round(cfg.width * scale);
         const sH = Math.round(cfg.height * scale);
         const sX = Math.round(cfg.x * scale);
         const sY = Math.round(cfg.y * scale);
+        const opacity = cfg.opacity ?? 1;
+        const alphaFilter = opacity < 1 ? `,format=rgba,colorchannelmixer=aa=${opacity.toFixed(2)}` : '';
 
-        vF += `${src}setpts=PTS-STARTPTS,scale=${sW}:${sH},rotate=${rad}:c=none:ow=rotw(${rad}):oh=roth(${rad}),setpts=PTS-STARTPTS+${cfg.startTime}/TB[v${idx}];`;
+        vF += `${src}setpts=PTS-STARTPTS,scale=${sW}:${sH},rotate=${rad}:c=none:ow=rotw(${rad}):oh=roth(${rad})${alphaFilter},setpts=PTS-STARTPTS+${cfg.startTime}/TB[v${idx}];`;
         vF += `${lastV}[v${idx}]overlay=x=${sX}:y=${sY}:enable='between(t,${cfg.startTime},${cfg.startTime + cfg.duration})'`;
         
         const isLast = !sorted.slice(sorted.indexOf(cfg) + 1).some(n => n.type !== 'audio');

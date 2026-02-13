@@ -1,142 +1,224 @@
-import React, { useRef, useState } from 'react';
-import { Upload, Plus, Film, Music, Image as ImageIcon, Code2, Sparkles, Edit3, Mic, Trash2 } from 'lucide-react';
-import { Asset } from '../types';
+import React, { useRef, useState, useEffect } from 'react';
+import { 
+  Upload, Plus, Film, Music, Image as ImageIcon, 
+  Code2, Sparkles, Mic, Trash2, 
+  AlertTriangle, Check
+} from 'lucide-react';
+import { Asset, ASSET_COLORS } from '../types';
 
 interface FileExplorerProps {
   assets: Asset[];
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onAdd: (asset: Asset) => void;
-  onDelete: (id: string) => void; // Neu hinzugefügt
+  onDelete: (id: string) => void;
+  onRename: (id: string, newName: string) => void;
   onCreateDynamic: (type: 'html' | 'manim') => void;
   onEditDynamic: (asset: Asset) => void;
   onCreateTTS: () => void;
 }
 
 export const FileExplorer: React.FC<FileExplorerProps> = ({
-  assets, onUpload, onAdd, onDelete, onCreateDynamic, onEditDynamic, onCreateTTS
+  assets, onUpload, onAdd, onDelete, onRename, onCreateDynamic, onEditDynamic, onCreateTTS
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  
   const [isDragging, setIsDragging] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
-  // Drag & Drop Handler
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+  // Auto-focus the input when a user clicks the name to rename
+  useEffect(() => {
+    if (renamingId && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [renamingId]);
 
+  // --- Handlers ---
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = () => setIsDragging(false);
-
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      // Erstellt ein Fake-Event für die bestehende onUpload-Logik
+    if (e.dataTransfer.files?.length) {
       const dt = new DataTransfer();
-      for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        dt.items.add(e.dataTransfer.files[i]);
-      }
-      const event = {
-        target: { files: dt.files }
-      } as unknown as React.ChangeEvent<HTMLInputElement>;
-      onUpload(event);
+      for (let i = 0; i < e.dataTransfer.files.length; i++) dt.items.add(e.dataTransfer.files[i]);
+      onUpload({ target: { files: dt.files } } as unknown as React.ChangeEvent<HTMLInputElement>);
     }
+  };
+
+  const startRenaming = (e: React.MouseEvent, asset: Asset) => {
+    e.stopPropagation(); // Prevent opening the editor modal
+    setRenamingId(asset.id);
+    setRenameValue(asset.name.replace(/\.[^/.]+$/, ""));
+  };
+
+  const submitRename = () => {
+    if (renamingId && renameValue.trim()) {
+      onRename(renamingId, renameValue.trim());
+    }
+    setRenamingId(null);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') submitRename();
+    if (e.key === 'Escape') setRenamingId(null);
   };
 
   return (
     <div 
       className="flex flex-col h-full overflow-hidden"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
     >
-      {/* Creation Tools - Jetzt oben und gleichmäßig verteilt */}
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        <button 
-          onClick={() => onCreateDynamic('html')} 
-          className="py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl hover:bg-sky-500/20 transition-all flex flex-col items-center justify-center gap-1 text-sky-400 cursor-pointer"
-        >
-          <Code2 size={16}/><span className="text-[8px] font-black uppercase">HTML</span>
+      {/* 1. CREATION TOOLS */}
+      <div className="grid grid-cols-3 gap-2 mb-4 shrink-0">
+        <button onClick={() => onCreateDynamic('html')} className={`py-3 ${ASSET_COLORS.html.bg} border ${ASSET_COLORS.html.border} rounded-xl hover:brightness-125 transition-all flex flex-col items-center justify-center gap-1 ${ASSET_COLORS.html.text} cursor-pointer`}>
+          <Code2 size={16}/><span className="text-[8px] font-black uppercase tracking-wider">HTML</span>
         </button>
-        
-        <button
-          onClick={() => onCreateDynamic('manim')}
-          className="py-3 bg-purple-500/10 border border-purple-500/20 rounded-xl hover:bg-purple-500/20 transition-all flex flex-col items-center justify-center gap-1 text-purple-400 cursor-pointer"
-        >
-          <Sparkles size={16}/><span className="text-[8px] font-black uppercase">Manim</span>
+        <button onClick={() => onCreateDynamic('manim')} className={`py-3 ${ASSET_COLORS.manim.bg} border ${ASSET_COLORS.manim.border} rounded-xl hover:brightness-125 transition-all flex flex-col items-center justify-center gap-1 ${ASSET_COLORS.manim.text} cursor-pointer`}>
+          <Sparkles size={16}/><span className="text-[8px] font-black uppercase tracking-wider">Manim</span>
         </button>
-
-        <button
-          onClick={onCreateTTS}
-          className="py-3 bg-amber-500/10 border border-amber-500/20 rounded-xl hover:bg-amber-500/20 transition-all flex flex-col items-center justify-center gap-1 text-amber-400 cursor-pointer"
-        >
-          <Mic size={16}/><span className="text-[8px] font-black uppercase">TTS</span>
+        <button onClick={onCreateTTS} className={`py-3 ${ASSET_COLORS.audio.bg} border ${ASSET_COLORS.audio.border} rounded-xl hover:brightness-125 transition-all flex flex-col items-center justify-center gap-1 ${ASSET_COLORS.audio.text} cursor-pointer`}>
+          <Mic size={16}/><span className="text-[8px] font-black uppercase tracking-wider">TTS</span>
         </button>
       </div>
 
-      {/* Import/Dropzone - Kleiner und funktionaler */}
+      {/* 2. IMPORT DROPZONE */}
       <button 
         onClick={() => fileInputRef.current?.click()} 
-        className={`mb-6 py-3 border-2 border-dashed rounded-2xl transition-all flex items-center justify-center gap-3 group cursor-pointer ${
-          isDragging 
-            ? 'border-indigo-500 bg-indigo-500/10' 
-            : 'border-border-strong hover:bg-white/5 hover:border-indigo-500/40 text-gray-500'
+        className={`mb-6 py-3 border-2 border-dashed rounded-2xl transition-all flex items-center justify-center gap-3 group cursor-pointer shrink-0 ${
+          isDragging ? 'border-indigo-500 bg-indigo-500/10' : 'border-white/5 hover:bg-white/5 hover:border-white/10 text-gray-500'
         }`}
       >
-        <Upload size={16} className={`${isDragging ? 'text-indigo-400' : 'group-hover:text-indigo-400'} transition-colors`}/>
-        <p className="text-[9px] font-black uppercase tracking-widest">
-          {isDragging ? 'Drop to upload' : 'Import Media'}
-        </p>
+        <Upload size={14} className={`${isDragging ? 'text-indigo-400' : 'group-hover:text-indigo-400'} transition-colors`}/>
+        <p className="text-[9px] font-black uppercase tracking-widest">{isDragging ? 'Release to Upload' : 'Import Media'}</p>
       </button>
-      
       <input type="file" ref={fileInputRef} hidden multiple onChange={onUpload} />
 
-      {/* Assets List */}
-      <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-        {assets.map(asset => (
-          <div key={asset.id} className="group relative bg-bg-elevated p-3 rounded-2xl border border-border-default hover:border-indigo-500/50 transition-all flex items-center gap-3">
-            <div className="w-10 h-10 bg-bg-canvas rounded-lg flex items-center justify-center border border-border-subtle shrink-0">
-              {asset.type === 'video' && <Film size={14} className="text-sky-400" />}
-              {asset.type === 'audio' && <Music size={14} className="text-indigo-400" />}
-              {asset.type === 'image' && <ImageIcon size={14} className="text-emerald-400" />}
-              {asset.type === 'html' && <Code2 size={14} className="text-sky-400" />}
-              {asset.type === 'manim' && <Sparkles size={14} className="text-purple-400" />}
-            </div>
+      {/* 3. ASSETS GRID */}
+      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+        <div className="grid gap-3 pb-6" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))' }}>
+          {assets.map(asset => {
+            const colors = ASSET_COLORS[asset.type] || ASSET_COLORS.video;
+            const percent = asset.progress ?? asset.processStatus?.match(/(\d+)%/)?.[1];
+            const isEditing = renamingId === asset.id;
             
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold truncate capitalize text-gray-300">{asset.name.split('.')[0]}</p>
-              <p className="text-[8px] font-black opacity-30 uppercase tracking-widest">
-                {asset.type} • {asset.sourceDuration.toFixed(1)}s
-              </p>
-            </div>
+            const iconMap: Record<string, React.ReactNode> = {
+              video: <Film size={18} />,
+              audio: <Music size={18} />,
+              image: <ImageIcon size={18} />,
+              html: <Code2 size={18} />,
+              manim: <Sparkles size={18} />,
+            };
 
-            {/* Actions: Edit, Delete, Add */}
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-              {(asset.type === 'html' || asset.type === 'manim') && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onEditDynamic(asset); }} 
-                  className="bg-white/10 text-white p-2 rounded-xl hover:bg-white/20 transition-all cursor-pointer active:scale-90"
-                  title="Edit"
-                >
-                  <Edit3 size={12}/>
-                </button>
-              )}
-              <button 
-                onClick={(e) => { e.stopPropagation(); onDelete(asset.id); }} 
-                className="bg-red-500/10 text-red-500 p-2 rounded-xl hover:bg-red-500/20 transition-all cursor-pointer active:scale-90"
-                title="Delete"
+            const renderThumbnail = () => {
+              if (asset.isProcessing || !asset.url) {
+                return (
+                  <div className={`${colors.text} opacity-40 group-hover:opacity-100 transition-all transform group-hover:scale-110 duration-500`}>
+                    {iconMap[asset.type]}
+                  </div>
+                );
+              }
+              if (asset.type === 'image') {
+                return <img src={asset.url} alt={asset.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />;
+              }
+              if (['video', 'html', 'manim'].includes(asset.type)) {
+                const middleFrame = (asset.duration || 2) / 2;
+                return <video src={`${asset.url}#t=${middleFrame}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" muted playsInline />;
+              }
+              return (
+                <div className={`${colors.text} opacity-40 group-hover:opacity-100 transition-all transform group-hover:scale-110 duration-500`}>
+                  {iconMap[asset.type]}
+                </div>
+              );
+            };
+
+            return (
+              <div
+                key={asset.id}
+                onClick={() => !isEditing && (asset.type === 'html' || asset.type === 'manim') && onEditDynamic(asset)}
+                className={`group relative flex flex-col bg-white/[0.02] rounded-2xl border transition-all cursor-pointer overflow-hidden ${
+                  asset.processError && !asset.isProcessing ? 'border-red-500/30' : `border-white/5 hover:${colors.border}`
+                }`}
+                style={{ aspectRatio: '1 / 1.15' }}
               >
-                <Trash2 size={12}/>
-              </button>
-              <button 
-                onClick={(e) => { e.stopPropagation(); onAdd(asset); }} 
-                className="bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-500 transition-all shadow-lg cursor-pointer active:scale-90"
-                title="Add to Timeline"
-              >
-                <Plus size={12}/>
-              </button>
-            </div>
-          </div>
-        ))}
+                {/* PREVIEW AREA */}
+                <div className="flex-1 relative flex items-center justify-center bg-black/40 overflow-hidden">
+                  {renderThumbnail()}
+
+                  {/* ACTION OVERLAY (Top Right) */}
+                  <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-all z-20 translate-x-1 group-hover:translate-x-0">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onDelete(asset.id); }} 
+                      className="bg-black/80 hover:bg-red-500/20 text-white/40 hover:text-red-400 p-1.5 rounded-lg backdrop-blur-md border border-white/5 transition-all active:scale-90"
+                    >
+                      <Trash2 size={10}/>
+                    </button>
+                    
+                    {/* ADD BUTTON - Fixed visibility logic */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onAdd(asset); }}
+                      disabled={!asset.url || asset.isProcessing}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white p-1.5 rounded-lg shadow-xl transition-all active:scale-90 disabled:opacity-20 disabled:grayscale disabled:cursor-not-allowed"
+                    >
+                      <Plus size={10}/>
+                    </button>
+                  </div>
+
+                  {/* PROCESSING OVERLAY */}
+                  {asset.isProcessing && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-[1px] z-10">
+                      <div className="relative w-8 h-8">
+                        <div className={`absolute inset-0 border-t-2 ${colors.accent || 'border-indigo-500'} rounded-full animate-spin`} />
+                        {percent && (
+                          <span className={`absolute inset-0 flex items-center justify-center text-[7px] font-black ${colors.text}`}>
+                            {percent}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* INFO FOOTER */}
+                <div className="p-2.5 bg-white/[0.01] border-t border-white/5">
+                  {isEditing ? (
+                    <div className="flex items-center gap-1 bg-black/40 rounded-lg px-1.5 py-1 border border-indigo-500/50">
+                      <input
+                        ref={renameInputRef}
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={submitRename}
+                        onKeyDown={handleKeyDown}
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-transparent text-[9px] font-bold text-white outline-none w-full"
+                      />
+                      <Check size={10} className="text-emerald-400 shrink-0 cursor-pointer" onClick={submitRename}/>
+                    </div>
+                  ) : (
+                    <h4 
+                      className="text-[9px] font-bold truncate text-white/40 group-hover:text-white transition-colors uppercase tracking-tight cursor-text hover:bg-white/5 rounded px-1 -ml-1"
+                      onClick={(e) => startRenaming(e, asset)}
+                      title="Click to rename"
+                    >
+                      {asset.name.replace(/\.[^/.]+$/, "")}
+                    </h4>
+                  )}
+                  <div className="flex items-center justify-between mt-1">
+                    <span className={`text-[7px] font-black uppercase tracking-widest ${colors.text} opacity-60`}>{asset.type}</span>
+                    <span className="text-[8px] font-medium text-white/20">{asset.duration > 0 && `${asset.duration.toFixed(1)}s`}</span>
+                  </div>
+                </div>
+
+                {/* ERROR INDICATOR BAR */}
+                {asset.processError && !asset.isProcessing && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500/50" />
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

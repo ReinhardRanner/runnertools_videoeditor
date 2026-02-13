@@ -110,7 +110,9 @@
 
 
 /* --- Global Scrollbar Refinement --- */
-
+.scroll-container {
+  scrollbar-gutter: stable both-edges;
+}
 /* 1. The Track (The background area) */
 ::-webkit-scrollbar {
   width: 6px;  /* Vertical scrollbar width */
@@ -149,3 +151,52 @@
 .moveable-control {
   pointer-events: auto !important;
 }
+
+/* Hide scrollbar but keep scrollable */
+.hide-scrollbar { scrollbar-width: none; }
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ===== Prism Dark Theme ===== */
+code[class*="language-"],
+pre[class*="language-"] {
+  color: #c9d1d9;
+  text-shadow: none;
+  background: none;
+}
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata { color: #8b949e; font-style: italic; }
+
+.token.punctuation { color: #8b949e; }
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted { color: #79c0ff; }
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted { color: #a5d6ff; }
+
+.token.operator,
+.token.entity,
+.token.url { color: #d2a8ff; }
+
+.token.atrule,
+.token.attr-value,
+.token.keyword { color: #ff7b72; }
+
+.token.function,
+.token.class-name { color: #d2a8ff; }
+
+.token.regex,
+.token.important,
+.token.variable { color: #ffa657; }

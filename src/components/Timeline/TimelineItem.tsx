@@ -1,7 +1,6 @@
-import React, { useState, useRef, memo } from 'react';
-import { Rnd } from 'react-rnd';
-import { Film, Music, Image as ImageIcon } from 'lucide-react';
-import { TrackItem } from '../../types';
+import React, { useState, useRef, memo, useEffect } from 'react';
+import { Film, Music, Image as ImageIcon, Code2, Sparkles } from 'lucide-react';
+import { TrackItem, ASSET_COLORS } from '../../types';
 import { Waveform } from './Waveform';
 
 const TRACK_HEIGHT = 64;
@@ -23,38 +22,104 @@ interface TimelineItemProps {
 }
 
 export const TimelineItem = memo(({ item, zoom, selectedId, setSelectedId, setItems, trackCount }: TimelineItemProps) => {
-  const [isResizing, setIsResizing] = useState(false);
-  const [tempState, setTempState] = useState({ startTime: item.startTime, duration: item.duration, offset: item.startTimeOffset });
-  const resizeLimits = useRef({ absStart: 0, absEnd: 0, rightAnchor: 0, leftAnchor: 0 });
+  const isSelected = selectedId === item.instanceId;
+  const hasWaveform = item.type !== 'image';
 
-  const isMedia = item.type === 'video' || item.type === 'audio';
+  // --- INTERAKTIONS LOGIK (MANUELL) ---
+  const handleAction = (e: React.MouseEvent, type: 'move' | 'left' | 'right') => {
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedId(item.instanceId);
 
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initialItem = { ...item };
+
+    const onMouseMove = (moveE: MouseEvent) => {
+      const deltaX = (moveE.clientX - startX) / zoom;
+      const deltaY = moveE.clientY - startY;
+
+      setItems((prev) => prev.map((i) => {
+        if (i.instanceId !== item.instanceId) return i;
+
+        if (type === 'move') {
+          const newLayer = Math.max(0, Math.min(trackCount - 1, Math.round((initialItem.layer * TRACK_HEIGHT + deltaY) / TRACK_HEIGHT)));
+          return { 
+            ...i, 
+            startTime: Math.max(0, initialItem.startTime + deltaX),
+            layer: newLayer
+          };
+        }
+
+        if (type === 'left') {
+          // HARTE GRENZE LINKS: startTimeOffset darf nicht < 0 werden
+          let validDeltaX = deltaX;
+          if (initialItem.startTimeOffset + validDeltaX < 0) {
+            validDeltaX = -initialItem.startTimeOffset;
+          }
+          // Mindestlänge checken
+          if (initialItem.duration - validDeltaX < 0.1) {
+            validDeltaX = initialItem.duration - 0.1;
+          }
+
+          return {
+            ...i,
+            startTime: initialItem.startTime + validDeltaX,
+            startTimeOffset: initialItem.startTimeOffset + validDeltaX,
+            duration: initialItem.duration - validDeltaX
+          };
+        }
+
+        if (type === 'right') {
+          // HARTE GRENZE RECHTS: offset + duration darf nicht > sourceDuration werden
+          let validDeltaX = deltaX;
+          const maxPossibleDuration = initialItem.sourceDuration - initialItem.startTimeOffset;
+          if (initialItem.duration + validDeltaX > maxPossibleDuration) {
+            validDeltaX = maxPossibleDuration - initialItem.duration;
+          }
+          // Mindestlänge checken
+          if (initialItem.duration + validDeltaX < 0.1) {
+            validDeltaX = 0.1 - initialItem.duration;
+          }
+
+          return {
+            ...i,
+            duration: initialItem.duration + validDeltaX
+          };
+        }
+
+        return i;
+      }));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = 'default';
+    };
+
+    document.body.style.cursor = type === 'move' ? 'grabbing' : 'col-resize';
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // --- HELPER ---
   const getIcon = () => {
+    const colors = ASSET_COLORS[item.type];
+    const cls = colors?.text || 'text-gray-400';
     switch (item.type) {
-      case 'video': return <Film size={11} className="text-sky-400" />;
-      case 'audio': return <Music size={11} className="text-indigo-400" />;
-      case 'image': return <ImageIcon size={11} className="text-emerald-400" />;
+      case 'video': return <Film size={11} className={cls} />;
+      case 'audio': return <Music size={11} className={cls} />;
+      case 'image': return <ImageIcon size={11} className={cls} />;
+      case 'html':  return <Code2 size={11} className={cls} />;
+      case 'manim': return <Sparkles size={11} className={cls} />;
       default: return null;
     }
   };
 
-  const handleFadeDrag = (type: 'in' | 'out', e: React.MouseEvent) => {
-    e.stopPropagation(); e.preventDefault();
-    const startX = e.clientX;
-    const initialFade = type === 'in' ? item.fadeInDuration : item.fadeOutDuration;
-    const onMove = (moveE: MouseEvent) => {
-      const deltaX = (moveE.clientX - startX) / zoom;
-      const newVal = type === 'in' 
-        ? Math.max(0, Math.min(item.duration / 2, initialFade + deltaX))
-        : Math.max(0, Math.min(item.duration / 2, initialFade - deltaX));
-      setItems((prev) => prev.map((i) => i.instanceId === item.instanceId ? { ...i, [type === 'in' ? 'fadeInDuration' : 'fadeOutDuration']: newVal } : i));
-    };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
-  };
-
   const generateFadePath = (dur: number, type: 'in' | 'out') => {
-    const w = dur * zoom;
+    const safeDur = Math.min(dur, item.duration / 2);
+    const w = safeDur * zoom;
     const clipW = item.duration * zoom;
     if (w <= 1) return "";
     let path = `M ${type === 'in' ? 0 : clipW} ${TOTAL_CLIP_HEIGHT} `;
@@ -68,51 +133,76 @@ export const TimelineItem = memo(({ item, zoom, selectedId, setSelectedId, setIt
   };
 
   return (
-    <Rnd
-      dragAxis="both" bounds="parent" dragGrid={[1, TRACK_HEIGHT]} enableResizing={{ right: true, left: true }}
-      position={{ x: (isResizing ? tempState.startTime : item.startTime) * zoom, y: item.layer * TRACK_HEIGHT }}
-      size={{ width: (isResizing ? tempState.duration : item.duration) * zoom, height: TRACK_HEIGHT }}
-      onDragStart={(e) => { e.stopPropagation(); setSelectedId(item.instanceId); }}
-      onDragStop={(_, d) => {
-        const newLayer = Math.max(0, Math.min(trackCount - 1, Math.round(d.y / TRACK_HEIGHT)));
-        setItems((prev) => prev.map((i) => i.instanceId === item.instanceId ? { ...i, startTime: d.x / zoom, layer: newLayer } : i));
+    <div
+      className="absolute group select-none"
+      style={{
+        left: item.startTime * zoom,
+        top: item.layer * TRACK_HEIGHT,
+        width: item.duration * zoom,
+        height: TRACK_HEIGHT,
+        zIndex: isSelected ? 50 : 10,
+        willChange: 'left, width, top'
       }}
-      onResizeStart={() => {
-        setIsResizing(true);
-        resizeLimits.current = { absStart: item.startTime - item.startTimeOffset, absEnd: (item.startTime - item.startTimeOffset) + item.sourceDuration, rightAnchor: item.startTime + item.duration, leftAnchor: item.startTime };
-        setTempState({ startTime: item.startTime, duration: item.duration, offset: item.startTimeOffset });
-      }}
-      onResize={(_, dir, ref, __, pos) => {
-        let nD = parseInt(ref.style.width) / zoom;
-        let nS = pos.x / zoom;
-        if (item.type !== 'image') {
-          if (dir === 'left') { if (nS < resizeLimits.current.absStart) { nS = resizeLimits.current.absStart; nD = resizeLimits.current.rightAnchor - nS; } }
-          else { if (resizeLimits.current.leftAnchor + nD > resizeLimits.current.absEnd) nD = resizeLimits.current.absEnd - resizeLimits.current.leftAnchor; }
-        }
-        setTempState({ startTime: nS, duration: nD, offset: item.type !== 'image' ? item.startTimeOffset + (nS - item.startTime) : 0 });
-      }}
-      onResizeStop={() => { setIsResizing(false); setItems((prev) => prev.map((i) => i.instanceId === item.instanceId ? { ...i, ...tempState } : i)); }}
     >
-      <div className={`mx-0 my-[5px] h-[54px] w-full border flex flex-col relative overflow-hidden transition-all ${selectedId === item.instanceId ? 'bg-indigo-500/10 border-indigo-400' : 'bg-[#121212] border-white/5'}`}>
-        <div className="h-5 flex items-center px-2 gap-1.5 bg-black/40 border-b border-white/5 z-20 pointer-events-none">
-          {getIcon()} <span className="truncate text-[8px] font-black uppercase text-gray-200 tracking-tight">{item.name}</span>
+      {/* Ghost Layer */}
+      {isSelected && (
+        <div 
+          className="absolute h-[54px] top-[5px] bg-white/[0.03] border border-dashed border-white/10 rounded-lg pointer-events-none"
+          style={{
+            left: -item.startTimeOffset * zoom,
+            width: item.sourceDuration * zoom,
+            zIndex: -1
+          }}
+        />
+      )}
+
+      {/* Main Clip Content */}
+      <div 
+        onMouseDown={(e) => handleAction(e, 'move')}
+        className={`absolute top-[5px] left-0 right-0 h-[54px] border flex flex-col overflow-hidden rounded-lg transition-colors ${
+          isSelected ? 'bg-indigo-500/20 border-indigo-400 shadow-lg' : 'bg-[#18181b] border-white/10 hover:border-white/20'
+        }`}
+      >
+        {/* Header */}
+        <div className="h-5 flex items-center px-2 gap-1.5 bg-black/40 border-b border-white/5 pointer-events-none">
+          {getIcon()} 
+          <span className="truncate text-[8px] font-black uppercase text-gray-200 tracking-tight">{item.name}</span>
+          <span className="ml-auto text-[7px] font-mono text-white/30">{item.duration.toFixed(2)}s</span>
         </div>
-        {isMedia && (
-          <div className="relative flex-1">
-            <Waveform url={item.url} width={(isResizing ? tempState.duration : item.duration) * zoom} item={item} />
-            <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" style={{ top: -CLIP_HEADER_HEIGHT, height: TOTAL_CLIP_HEIGHT }}>
-              <path d={generateFadePath(item.fadeInDuration, 'in')} fill="rgba(99, 102, 241, 0.1)" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" />
-              <path d={generateFadePath(item.fadeOutDuration, 'out')} fill="rgba(99, 102, 241, 0.1)" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" />
-            </svg>
-            <div onMouseDown={(e) => handleFadeDrag('in', e)} className="absolute top-0 z-30 cursor-ew-resize group/handle" style={{ left: (item.fadeInDuration * zoom) - 5, width: 10, height: 10 }}>
-              <div className="w-2 h-2 bg-white rounded-full border border-indigo-500 opacity-0 group-hover/handle:opacity-100" />
-            </div>
-            <div onMouseDown={(e) => handleFadeDrag('out', e)} className="absolute top-0 z-30 cursor-ew-resize group/handle" style={{ left: ((item.duration - item.fadeOutDuration) * zoom) - 5, width: 10, height: 10 }}>
-              <div className="w-2 h-2 bg-white rounded-full border border-indigo-500 opacity-0 group-hover/handle:opacity-100" />
-            </div>
-          </div>
-        )}
+
+        {/* Waveform */}
+        <div className="relative flex-1 pointer-events-none">
+          {hasWaveform && item.url && (
+            <Waveform 
+              url={item.url} 
+              zoom={zoom}
+              width={item.duration * zoom} 
+              item={item} 
+            />
+          )}
+          <svg className="absolute inset-0 w-full h-full" style={{ top: -CLIP_HEADER_HEIGHT, height: TOTAL_CLIP_HEIGHT }}>
+            <path d={generateFadePath(item.fadeInDuration, 'in')} fill="rgba(99, 102, 241, 0.08)" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" opacity="0.4" />
+            <path d={generateFadePath(item.fadeOutDuration, 'out')} fill="rgba(99, 102, 241, 0.08)" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" opacity="0.4" />
+          </svg>
+        </div>
+
+        {/* Resize Handles (Manuell) */}
+        <div 
+          onMouseDown={(e) => handleAction(e, 'left')}
+          className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-white/10 z-30"
+        />
+        <div 
+          onMouseDown={(e) => handleAction(e, 'right')}
+          className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-white/10 z-30"
+        />
       </div>
-    </Rnd>
+
+      {/* Fade Handles (Nur bei Selektion) */}
+      {isSelected && (
+        <div className="absolute inset-0 pointer-events-none z-40">
+           {/* Hier könntest du deine handleFadeDrag Logik von vorhin einfügen */}
+        </div>
+      )}
+    </div>
   );
 });

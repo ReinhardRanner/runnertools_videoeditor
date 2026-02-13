@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Send, Loader2, Mic } from 'lucide-react';
+import { ASSET_COLORS } from '../types';
 
 interface TTSModalProps {
   open: boolean;
@@ -33,7 +34,7 @@ export const TTSModal: React.FC<TTSModalProps> = ({ open, onClose, onGenerate, i
         {/* Header */}
         <div className="h-14 border-b border-border-default flex items-center justify-between px-6 bg-white/[0.02]">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+            <div className={`p-2 rounded-xl ${ASSET_COLORS.audio.bg} ${ASSET_COLORS.audio.text}`}>
               <Mic size={18} />
             </div>
             <span className="text-[11px] font-black uppercase tracking-[0.2em] text-white/90">Text to Speech</span>
@@ -50,7 +51,7 @@ export const TTSModal: React.FC<TTSModalProps> = ({ open, onClose, onGenerate, i
             <select
               value={voice}
               onChange={(e) => setVoice(e.target.value)}
-              className="w-full bg-white/[0.03] border border-border-default rounded-xl px-4 py-3 text-xs text-white appearance-none focus:outline-none focus:border-amber-500/50 transition-all"
+              className="w-full bg-white/[0.03] border border-border-default rounded-xl px-4 py-3 text-xs text-white appearance-none focus:outline-none focus:border-indigo-500/50 transition-all"
             >
               {VOICES.map(v => (
                 <option key={v.id} value={v.id} className="bg-[#111]">
@@ -67,7 +68,7 @@ export const TTSModal: React.FC<TTSModalProps> = ({ open, onClose, onGenerate, i
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="Enter the text you want to convert to speech..."
-              className="w-full bg-bg-canvas-deep border border-border-default rounded-xl p-4 text-sm text-white focus:outline-none focus:border-amber-500/50 min-h-[120px] resize-none"
+              className="w-full bg-bg-canvas-deep border border-border-default rounded-xl p-4 text-sm text-white focus:outline-none focus:border-indigo-500/50 min-h-[120px] resize-none"
               disabled={isGenerating}
             />
           </div>
@@ -76,7 +77,7 @@ export const TTSModal: React.FC<TTSModalProps> = ({ open, onClose, onGenerate, i
           <button
             onClick={() => onGenerate(text, voice)}
             disabled={isGenerating || !text.trim()}
-            className="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-20 text-black font-black uppercase text-xs rounded-xl transition-all flex items-center justify-center gap-2"
+            className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-20 text-white font-black uppercase text-xs rounded-xl transition-all flex items-center justify-center gap-2"
           >
             {isGenerating ? (
               <>
