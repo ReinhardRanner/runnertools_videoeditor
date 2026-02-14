@@ -117,7 +117,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
           isDragging ? 'border-indigo-500 bg-indigo-500/10' : 'border-white/5 hover:bg-white/5 hover:border-white/10 text-gray-500'
         }`}
       >
-        <Upload size={14} className={`${isDragging ? 'text-indigo-400' : 'group-hover:text-indigo-400'} transition-colors`}/>
+        <Upload size={14} className={`${isDragging ? 'text-indigo-400' : 'text-gray-500'} transition-colors`}/>
         <p className="text-[9px] font-black uppercase tracking-widest">{isDragging ? 'Release to Upload' : 'Import Media'}</p>
       </button>
       <input type="file" ref={fileInputRef} hidden multiple onChange={onUpload} />

@@ -2,55 +2,89 @@ import React, { useRef, useEffect, memo, useState } from 'react';
 import { TrackItem } from '../../types';
 import { timeStore } from '../../utils/TimeStore';
 
-export const MediaClipPlayer = memo(({ item, isMuted }: { 
-  item: TrackItem, 
-  isMuted: boolean 
-}) => {
-  // We use the same ref for Video or Audio
+interface MediaClipPlayerProps {
+  item: TrackItem;
+  isMuted: boolean;
+  previewFps: number;
+  previewDownscale: number;
+}
+
+export const MediaClipPlayer = memo(({ 
+  item, 
+  isMuted, 
+  previewFps, 
+  previewDownscale 
+}: MediaClipPlayerProps) => {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isReady, setIsReady] = useState(false);
 
-  // Fallback duration for images/assets that lack it
   const safeDuration = item.duration ?? 5;
+  const baseWidth = item.width || 1920;
+  const baseHeight = item.height || 1080;
+  
+  const canvasWidth = Math.max(1, Math.round(baseWidth * (previewDownscale || 1)));
+  const canvasHeight = Math.max(1, Math.round(baseHeight * (previewDownscale || 1)));
 
   const getSmoothstepGain = (t: number) => {
     const v = Math.max(0, Math.min(1, t));
     return v * v * (3 - 2 * v);
   };
 
+  // --- REFRESH LOGIC ---
+  // This effect specifically handles redrawing the current frame 
+  // immediately when the resolution scale or FPS settings change.
   useEffect(() => {
     const media = mediaRef.current;
-    // Images don't need a playhead or audio logic
+    const canvas = canvasRef.current;
+    if (!media || !canvas || item.type !== 'video' || !(media instanceof HTMLVideoElement)) return;
+
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    
+    // If the video is ready, force a frame draw immediately.
+    // This is what fixes the "delayed update" when changing resolution.
+    if (media.readyState >= 2) {
+      ctx?.drawImage(media, 0, 0, canvas.width, canvas.height);
+    }
+  }, [previewDownscale, previewFps, item.instanceId, isReady]);
+
+  useEffect(() => {
+    const media = mediaRef.current;
     if (!media || item.type === 'image') return;
 
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d', { alpha: false, desynchronized: true });
-    let frameId: number;
+    if (!canvas) return;
 
-    const paint = () => {
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    let frameId: number;
+    let lastPaintTime = 0;
+    const fpsInterval = 1000 / previewFps;
+
+    const paint = (now: number) => {
       if (item.type === 'video' && media instanceof HTMLVideoElement && media.readyState >= 2) {
-        ctx?.drawImage(media, 0, 0, canvas!.width, canvas!.height);
+        const elapsed = now - lastPaintTime;
+        if (elapsed >= fpsInterval) {
+          lastPaintTime = now - (elapsed % fpsInterval);
+          ctx?.drawImage(media, 0, 0, canvas.width, canvas.height);
+        }
       }
       
       if (item.type === 'video' && media instanceof HTMLVideoElement) {
         if ('requestVideoFrameCallback' in media) {
-          frameId = (media as any).requestVideoFrameCallback(paint);
+          frameId = (media as any).requestVideoFrameCallback(() => paint(performance.now()));
         } else {
-          frameId = requestAnimationFrame(paint);
+          frameId = requestAnimationFrame(() => paint(performance.now()));
         }
       }
     };
 
     const unsubscribe = timeStore.subscribe((time, isPlaying) => {
       if (!media) return;
-
+      
       const playbackTime = Math.max(0, (time - item.startTime) + item.startTimeOffset);
       const isWithinBounds = time >= item.startTime && time < (item.startTime + safeDuration);
 
       if (!isWithinBounds) {
-        // --- PRE-WARM ENGINE ---
-        // Force the video/audio to stay at the starting frame while invisible
         if (Math.abs(media.currentTime - item.startTimeOffset) > 0.1 && !media.seeking) {
           media.currentTime = item.startTimeOffset;
         }
@@ -58,16 +92,13 @@ export const MediaClipPlayer = memo(({ item, isMuted }: {
         return;
       }
 
-      // 1. Precise Sync (Scrubbing)
       if (!isPlaying) {
         if (!media.seeking && Math.abs(media.currentTime - playbackTime) > 0.04) {
           media.currentTime = playbackTime;
         }
       }
 
-      // 2. Playback Control
       if (isPlaying && isWithinBounds) {
-        // ReadyState 3 = HAVE_FUTURE_DATA
         if (media.paused && media.readyState >= 3) {
           media.play().catch(() => {});
         }
@@ -75,10 +106,8 @@ export const MediaClipPlayer = memo(({ item, isMuted }: {
         media.pause();
       }
 
-      // 3. Audio Fades
       const localTime = time - item.startTime;
       let gain = item.volume ?? 1;
-      
       if (item.fadeInDuration && localTime < item.fadeInDuration) {
         gain *= getSmoothstepGain(localTime / item.fadeInDuration);
       } else if (item.fadeOutDuration && localTime > (safeDuration - item.fadeOutDuration)) {
@@ -90,7 +119,9 @@ export const MediaClipPlayer = memo(({ item, isMuted }: {
       if (Math.abs(media.volume - vol) > 0.01) media.volume = vol;
     });
 
-    if (item.type === 'video') paint();
+    if (item.type === 'video') {
+      paint(performance.now());
+    }
 
     return () => {
       unsubscribe();
@@ -102,9 +133,7 @@ export const MediaClipPlayer = memo(({ item, isMuted }: {
         }
       }
     };
-  }, [item.instanceId, isMuted, item.url, safeDuration]);
-
-  // --- RENDERING ---
+  }, [item.instanceId, isMuted, item.url, previewFps, previewDownscale, safeDuration]);
 
   if (item.type === 'image') {
     return (
@@ -133,9 +162,12 @@ export const MediaClipPlayer = memo(({ item, isMuted }: {
           />
           <canvas 
             ref={canvasRef} 
-            width={item.width} 
-            height={item.height} 
+            width={canvasWidth} 
+            height={canvasHeight} 
             className={`w-full h-full object-fill transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`} 
+            style={{ 
+              imageRendering: previewDownscale < 1 ? 'pixelated' : 'auto' 
+            }}
           />
         </>
       )}

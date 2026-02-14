@@ -20,7 +20,7 @@ interface TimelineProps {
   onCaptureFrame: (name: string, dataUrl: string) => void;
 }
 
-const TRACK_COUNT = 8;
+const TRACK_COUNT = 20;
 const TRACK_HEIGHT = 64;
 const RULER_HEIGHT = 40;
 const LEFT_PADDING = 24;

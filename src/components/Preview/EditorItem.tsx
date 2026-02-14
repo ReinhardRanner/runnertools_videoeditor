@@ -204,7 +204,7 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
               className="absolute top-0 bottom-0 bg-indigo-500"
               style={{ 
                 left: `${snapLines.x}px`, 
-                width: `${1 / zoom}px`, 
+                width: `${2 / zoom}px`, 
                 height: `${canvasResolution.h}px` 
               }}
             />
@@ -214,7 +214,7 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
               className="absolute left-0 right-0 bg-indigo-500"
               style={{ 
                 top: `${snapLines.y}px`, 
-                height: `${1 / zoom}px`, 
+                height: `${2 / zoom}px`, 
                 width: `${canvasResolution.w}px` 
               }}
             />
@@ -240,7 +240,7 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
           {...bindDrag()}
           className="w-full h-full relative group"
           style={{ 
-            cursor: isDragging ? 'grabbing' : 'grab', 
+            cursor: isDragging ? 'grabbing' : 'default', 
             touchAction: 'none',
             opacity: opacity ?? 1 // Only media fades
           }}
@@ -301,37 +301,58 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
                 y: 0.5
               }
               if (!isCtrl) {
-                if (direction == 'left') pivot.x = 1;
-                else if (direction == 'right') pivot.x = 0;
-                else if (direction == 'top') pivot.y = 1;
-                else if (direction == 'bottom') pivot.y = 0;
-                else if (direction == 'topLeft') {
-                  pivot.x = 1;
-                  pivot.y = 1;
-                }
-                else if (direction == 'topRight') {
-                  pivot.y = 1;
-                  pivot.x = 0;
-                }
-                else if (direction == 'bottomLeft') {
-                  pivot.x = 1;
-                  pivot.y = 0;
-                }
-                else if (direction == 'bottomRight') {
-                  pivot.x = 0;
-                  pivot.y = 0;
-                }
+                if (direction == 'left' || direction == 'topLeft' || direction == 'bottomLeft') pivot.x = 1;
+                else if (direction == 'right' || direction == 'topRight' || direction == 'bottomRight') pivot.x = 0;
+                if (direction == 'top' || direction == 'topLeft' || direction == 'topRight') pivot.y = 1;
+                else if (direction == 'bottom' || direction == 'bottomLeft' || direction == 'bottomRight') pivot.y = 0;
               }
               
               // Scaling
               const scaleFactor = isCtrl ? 2 : 1
               if (direction == 'left' || direction == 'topLeft' || direction == 'bottomLeft' || direction == 'right' || direction == 'topRight' || direction == 'bottomRight') {
                 newW = width + (d.width * scaleFactor);
-                if (isShift) newH = newW / currentAR;
               }
               if (direction == 'top' || direction == 'topLeft' || direction == 'topRight' || direction == 'bottom' || direction == 'bottomLeft' || direction == 'bottomRight') {
                 newH = height + (d.height * scaleFactor);
-                if (isShift) newW = newH * currentAR;
+              }
+
+              // Shifting
+              if (isShift) {
+                if (direction == 'left' || direction == 'right') {
+                  newW = newH * currentAR;
+                }
+                if (direction == 'top' || direction == 'bottom') {
+                  newH = newW / currentAR;
+                }
+                if (direction == 'topLeft') {
+                  const newAR = newW / newH;
+                  if (newAR > currentAR) {
+                    newW = newH * currentAR;
+                  } else {
+                    newH = newW / currentAR;
+                  }
+                } else if (direction == 'topRight') {
+                  const newAR = newW / newH;
+                  if (newAR > currentAR) {
+                    newW = newH * currentAR;
+                  } else {
+                    newH = newW / currentAR;
+                  }
+                } else if (direction == 'bottomLeft') {
+                  const newAR = newW / newH;
+                  if (newAR > currentAR) {
+                    newW = newH * currentAR;
+                  } else {
+                    newH = newW / currentAR;
+                  }
+                } else if (direction == 'bottomRight') {
+                  const newAR = newW / newH;
+                  if (newAR > currentAR) {
+                    newW = newH * currentAR;
+                  } else {
+                    newH = newW / currentAR;
+                  }
+                }
               }
 
               // Moving
@@ -339,35 +360,59 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
               newY = y - (newH - height) * pivot.y;
               
               // Snapping
-              const threshold = 20 / zoom;
+              let activeLineX: number | null = null;
+              let activeLineY: number | null = null;
+
+              const threshold = 10 / zoom;
               const vGuides = [0, canvasResolution.w / 2, canvasResolution.w];
               const hGuides = [0, canvasResolution.h / 2, canvasResolution.h];
               if (direction == 'left' || direction == 'topLeft' || direction == 'bottomLeft') {
-                  newX = getSnapInfo(newX, vGuides, threshold).value;
-                  newW = (width + (x - newX)) * scaleFactor;
-                  if (isShift) newH = newW / currentAR;
+                  const snappedLeft = getSnapInfo(newX, vGuides, threshold);
+                  if (snappedLeft.snapped) {
+                    activeLineX = snappedLeft.guide;
+                    const deltaX = newX - snappedLeft.value;
+                    newX = snappedLeft.value;
+                    newW = newW + scaleFactor*deltaX;
+                    if (isShift) newH = newW / currentAR;
+                  }
               } else if (direction == 'right' || direction == 'topRight' || direction == 'bottomRight') {
-                  const snappedRight = getSnapInfo(newX + newW, vGuides, threshold).value;
-                  newW = snappedRight - newX;
-                  if (isShift) {
-                    newH = newW / currentAR;
-                    newY = y - (newH - height) * pivot.y;
+                  const snappedRight = getSnapInfo(newX + newW, vGuides, threshold);
+                  if (snappedRight.snapped) {
+                    activeLineX = snappedRight.guide;
+                    const deltaX = newX + newW - snappedRight.value;
+                    newX += (scaleFactor-1) * deltaX;
+                    newW -= scaleFactor*deltaX;
+                    if (isShift) {
+                      newH = newW / currentAR;
+                      newY = y - (newH - height) * pivot.y;
+                    }
                   }
               }
 
               if (direction == 'top' || direction == 'topLeft' || direction == 'topRight') {
-                  newY = getSnapInfo(newY, hGuides, threshold).value;
-                  newH = (height + (y - newY)) * scaleFactor;
-                  if (isShift) newW = newH * currentAR;
+                  const snappedTop = getSnapInfo(newY, hGuides, threshold);
+                  if (snappedTop.snapped) {
+                    activeLineY = snappedTop.guide;
+                    const deltaY = newY - snappedTop.value;
+                    newY = snappedTop.value;
+                    newH = newH + scaleFactor*deltaY;
+                    if (isShift) newW = newH * currentAR;
+                  }
               } else if (direction == 'bottom' || direction == 'bottomLeft' || direction == 'bottomRight') {
-                  let snappedBottom = getSnapInfo(newY + newH, hGuides, threshold).value;
-                  newH = snappedBottom - newY;
-                  if (isShift) {
-                    newW = newH * currentAR;
-                    newX = x - (newW - width) * pivot.x;
+                  const snappedBottom = getSnapInfo(newY + newH, hGuides, threshold);
+                  if (snappedBottom.snapped) {
+                    activeLineY = snappedBottom.guide;
+                    const deltaY = newY + newH - snappedBottom.value;
+                    newY += (scaleFactor-1) * deltaY;
+                    newH -= scaleFactor*deltaY;
+                    if (isShift) {
+                      newW = newH * currentAR;
+                      newX = x - (newW - width) * pivot.x;
+                    }
                   }
               }
 
+              setSnapLines({ x: activeLineX, y: activeLineY });
 
               ref.style.width = `${newW}px`;
               ref.style.height = `${newH}px`;

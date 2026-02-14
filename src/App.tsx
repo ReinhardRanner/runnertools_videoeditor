@@ -30,6 +30,8 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPreviewMuted, setIsPreviewMuted] = useState(false);
+  const [previewFps, setPreviewFps] = useState(60);
+  const [previewDownscale, setPreviewDownscale] = useState(0.5);
   
   // --- Canvas & Tools ---
   const [canvasZoom, setCanvasZoom] = useState(0.45);
@@ -496,7 +498,10 @@ export default function App() {
                 <PreviewCanvas 
                   zoom={canvasZoom} setZoom={setCanvasZoom} resolution={resolution} setResolution={setResolution} 
                   tool={tool} setTool={setTool} isMuted={isPreviewMuted} setIsMuted={setIsPreviewMuted}
-                  onMouseDown={() => setSelectedInstanceId(null)}
+                  onMouseDown={() => setSelectedInstanceId(null)}previewFps={previewFps}
+                  setPreviewFps={setPreviewFps}
+                  previewDownscale={previewDownscale}
+                  setPreviewDownscale={setPreviewDownscale}
                 >
                   {[...timelineItems].sort((a, b) => b.layer - a.layer).map((item) => {
                     const isVisible = currentTime >= item.startTime && currentTime <= (item.startTime + item.duration);
@@ -522,7 +527,7 @@ export default function App() {
                           rotation={item.rotation}
                           zoom={canvasZoom} // <--- WICHTIGSTER PARAMETER
                           canvasResolution={resolution}
-                          zIndex={10 - item.layer}
+                          zIndex={20 - item.layer}
                           // opacity={item.opacity}
                           // visibility={isVisible ? 'visible' : 'hidden'}
                           
@@ -532,10 +537,10 @@ export default function App() {
                         >
                           {/* Child Content */}
                           <MediaClipPlayer 
-                            item={item} 
-                            currentTime={currentTime} 
-                            isPlaying={isPlaying} 
-                            isMuted={isPreviewMuted} 
+                            item={item}
+                            isMuted={isPreviewMuted}
+                            previewFps={previewFps} 
+                            previewDownscale={previewDownscale}
                           />
                         </EditorItem>
                       </div>
@@ -552,7 +557,7 @@ export default function App() {
           </Panel>
 
           <Separator className="h-1 bg-bg-canvas-deep hover:bg-indigo-600 transition-all" />
-          <Panel defaultSize={35} minSize={20}>
+          <Panel defaultSize={25} minSize={20}>
             <Timeline items={timelineItems} setItems={setTimelineItems} currentTime={currentTime} setCurrentTime={setCurrentTime} isPlaying={isPlaying} setIsPlaying={setIsPlaying} zoom={timelineZoom} setZoom={setTimelineZoom} selectedId={selectedInstanceId} setSelectedId={setSelectedInstanceId} onSplit={onSplit} onCaptureFrame={handleCaptureFrame} />
           </Panel>
         </Group>
