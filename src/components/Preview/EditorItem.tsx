@@ -18,7 +18,7 @@ export interface EditorItemProps {
   rotation: number;
   zoom: number;
   canvasResolution: { w: number; h: number };
-  type: 'video' | 'audio' | 'image' | 'text' | 'html';
+  type: 'video' | 'audio' | 'image' | 'manim' | 'html';
   name?: string;
   opacity?: number; // Add this
   zIndex?: number;  // Add this
@@ -319,10 +319,10 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
               // Shifting
               if (isShift) {
                 if (direction == 'left' || direction == 'right') {
-                  newW = newH * currentAR;
+                  newH = newW / currentAR;
                 }
                 if (direction == 'top' || direction == 'bottom') {
-                  newH = newW / currentAR;
+                  newW = newH * currentAR;
                 }
                 if (direction == 'topLeft') {
                   const newAR = newW / newH;
@@ -373,7 +373,10 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
                     const deltaX = newX - snappedLeft.value;
                     newX = snappedLeft.value;
                     newW = newW + scaleFactor*deltaX;
-                    if (isShift) newH = newW / currentAR;
+                    if (isShift) {
+                      newH = newW / currentAR;
+                      newY = y - (newH - height) * pivot.y;
+                    }
                   }
               } else if (direction == 'right' || direction == 'topRight' || direction == 'bottomRight') {
                   const snappedRight = getSnapInfo(newX + newW, vGuides, threshold);
@@ -396,7 +399,10 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
                     const deltaY = newY - snappedTop.value;
                     newY = snappedTop.value;
                     newH = newH + scaleFactor*deltaY;
-                    if (isShift) newW = newH * currentAR;
+                    if (isShift) {
+                      newW = newH * currentAR;
+                      newX = x - (newW - width) * pivot.x;
+                    }
                   }
               } else if (direction == 'bottom' || direction == 'bottomLeft' || direction == 'bottomRight') {
                   const snappedBottom = getSnapInfo(newY + newH, hGuides, threshold);
@@ -425,14 +431,14 @@ export const EditorItem: React.FC<EditorItemProps> = memo(({
               onUpdate(id, { x: localState.x, y: localState.y, width: localState.width, height: localState.height });
             }}
             handleComponent={{
-              topLeft:     <div className="absolute w-0 h-0 pointer-events-auto" style={{ left: 0, top: 0 }}><LHandle pos="tl" zoom={zoom} /></div>,
-              topRight:    <div className="absolute w-0 h-0 pointer-events-auto" style={{ left: '100%', top: 0 }}><LHandle pos="tr" zoom={zoom} /></div>,
-              bottomLeft:  <div className="absolute w-0 h-0 pointer-events-auto" style={{ left: 0, top: '100%' }}><LHandle pos="bl" zoom={zoom} /></div>,
-              bottomRight: <div className="absolute w-0 h-0 pointer-events-auto" style={{ left: '100%', top: '100%' }}><LHandle pos="br" zoom={zoom} /></div>,
-              left:        <div className="absolute w-0 h-0 top-1/2 pointer-events-auto" style={{ left: 0 }}><SideHandle orientation="v" zoom={zoom} /></div>,
-              right:       <div className="absolute w-0 h-0 top-1/2 pointer-events-auto" style={{ left: '100%' }}><SideHandle orientation="v" zoom={zoom} /></div>,
-              top:         <div className="absolute w-0 h-0 left-1/2 pointer-events-auto" style={{ top: 0 }}><SideHandle orientation="h" zoom={zoom} /></div>,
-              bottom:      <div className="absolute w-0 h-0 left-1/2 pointer-events-auto" style={{ top: '100%' }}><SideHandle orientation="h" zoom={zoom} /></div>,
+              topLeft:     <div className="absolute w-0 h-0 left-1/2 top-1/2 pointer-events-auto"><LHandle pos="tl" zoom={zoom} /></div>,
+              topRight:    <div className="absolute w-0 h-0 left-1/2 top-1/2 pointer-events-auto"><LHandle pos="tr" zoom={zoom} /></div>,
+              bottomLeft:  <div className="absolute w-0 h-0 left-1/2 top-1/2 pointer-events-auto"><LHandle pos="bl" zoom={zoom} /></div>,
+              bottomRight: <div className="absolute w-0 h-0 left-1/2 top-1/2 pointer-events-auto"><LHandle pos="br" zoom={zoom} /></div>,
+              left:        <div className="absolute w-0 h-0 left-1/2 top-1/2 pointer-events-auto"><SideHandle orientation="v" zoom={zoom} side='left' /></div>,
+              right:       <div className="absolute w-0 h-0 left-1/2 top-1/2 pointer-events-auto"><SideHandle orientation="v" zoom={zoom} side='right' /></div>,
+              top:         <div className="absolute w-0 h-0 left-1/2 top-1/2 pointer-events-auto"><SideHandle orientation="h" zoom={zoom} side='top' /></div>,
+              bottom:      <div className="absolute w-0 h-0 left-1/2 top-1/2 pointer-events-auto"><SideHandle orientation="h" zoom={zoom} side='bottom' /></div>,
             }}
           >
             {/* The Selection Ring (Always 100% opaque and on top) */}

@@ -3,6 +3,8 @@ import {
   Monitor, Smartphone, Square, ChevronDown, MousePointer2,
   Hand, Volume2, VolumeX, Settings2, Zap
 } from 'lucide-react';
+import { Asset } from '../../types';
+import { getSnapInfo } from '../../utils/canvas-math';
 
 interface PreviewCanvasProps {
   children: React.ReactNode;
@@ -19,12 +21,17 @@ interface PreviewCanvasProps {
   setPreviewFps: (fps: number) => void;
   previewDownscale: number;
   setPreviewDownscale: (factor: number) => void;
+  onAdd: (asset: Asset, x: number, y: number) => void;
+  activeDragAsset: Asset | null;
+  selectedId: string | null;
+  onMoveSelected: (dx: number, dy: number) => void;
 }
 
 export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
   children, zoom, setZoom, resolution, setResolution, tool, setTool, 
   isMuted, setIsMuted, onMouseDown,
-  previewFps, setPreviewFps, previewDownscale, setPreviewDownscale
+  previewFps, setPreviewFps, previewDownscale, setPreviewDownscale,
+  onAdd, activeDragAsset, selectedId, onMoveSelected
 }) => {
   const [activeMenu, setActiveMenu] = useState<'zoom' | 'res' | 'perf' | null>(null);
   const [isDraggingUI, setIsDraggingUI] = useState(false);
@@ -34,6 +41,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
   const gridRef = useRef<HTMLDivElement>(null);
   const floatingUiRef = useRef<HTMLDivElement>(null);
   const syncCbRef = useRef<((z: number) => void) | undefined>(undefined);
+  const [dragOverPos, setDragOverPos] = useState<{x: number, y: number} | null>(null);
 
   // --- MOTION REFS ---
   const panRef = useRef({ x: 0, y: 0 });
@@ -48,6 +56,39 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
   const startPos = useRef({ x: 0, y: 0 });
   const lastDimensions = useRef({ w: 0, h: 0 });
   const zoomPercentRef = useRef<HTMLSpanElement>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 1. Safety check: Don't move if no element is selected
+      // 2. Safety check: Don't move if user is typing in an input/textarea
+      if (!selectedId) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      const isArrowKey = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+      if (!isArrowKey) return;
+
+      e.preventDefault(); // Prevent page scrolling
+
+      // Determine distance: 1px by default, 10px if Ctrl/Cmd is held
+      const step = (e.ctrlKey || e.metaKey) ? 10 : 1;
+      
+      let dx = 0;
+      let dy = 0;
+
+      switch (e.key) {
+        case 'ArrowUp':    dy = -step; break;
+        case 'ArrowDown':  dy = step;  break;
+        case 'ArrowLeft':  dx = -step; break;
+        case 'ArrowRight': dx = step;  break;
+      }
+
+      onMoveSelected(dx, dy);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId, onMoveSelected]); // Re-bind if selection changes
 
   const updateDOM = useCallback(() => {
     if (!stageRef.current) return;
@@ -330,14 +371,130 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
     { name: 'Square', w: 1080, h: 1080 },
   ];
 
+  const getCanvasCoordinates = (e: React.DragEvent | MouseEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // 1. In Welt-Koordinaten umrechnen
+    let x = (mouseX - panRef.current.x) / zoomRef.current;
+    let y = (mouseY - panRef.current.y) / zoomRef.current;
+
+    // 2. SNAPPING (z.B. an einem 20px Raster)
+    const gridSize = 20;
+    x = Math.round(x / gridSize) * gridSize;
+    y = Math.round(y / gridSize) * gridSize;
+
+    return { x, y };
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (ghostRef.current) ghostRef.current.style.display = 'none';
+
+    const rawData = e.dataTransfer.getData("application/react-asset");
+    if (!rawData || !ghostRef.current) return;
+
+    const asset = JSON.parse(rawData) as Asset;
+    
+    // Wir nehmen die exakten, gesnappten Werte vom Ghost (Top-Left)
+    const x = parseFloat(ghostRef.current.dataset.nx || "0");
+    const y = parseFloat(ghostRef.current.dataset.ny || "0");
+
+    onAdd(asset, x, y);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect || !activeDragAsset || !ghostRef.current) return;
+
+    const w = activeDragAsset.resolution?.w || 400;
+    const h = activeDragAsset.resolution?.h || 225;
+
+    // 1. Koordinaten berechnen (Top-Left Fokus)
+    const mouseX = (e.clientX - rect.left - panRef.current.x) / zoomRef.current;
+    const mouseY = (e.clientY - rect.top - panRef.current.y) / zoomRef.current;
+    let nx = mouseX - w / 2;
+    let ny = mouseY - h / 2;
+
+    // 2. Snapping (Top-Left)
+    const threshold = 20 / zoomRef.current;
+    const vGuides = [0, resolution.w / 2, resolution.w];
+    const hGuides = [0, resolution.h / 2, resolution.h];
+
+    const snapX = [nx, nx + w / 2, nx + w];
+    const snapY = [ny, ny + h / 2, ny + h];
+
+    const resX = [getSnapInfo(snapX[0], vGuides, threshold), getSnapInfo(snapX[1], vGuides, threshold), getSnapInfo(snapX[2], vGuides, threshold)];
+    if (resX[0].snapped) nx = resX[0].value;
+    else if (resX[1].snapped) nx = resX[1].value - w / 2;
+    else if (resX[2].snapped) nx = resX[2].value - w;
+
+    const resY = [getSnapInfo(snapY[0], hGuides, threshold), getSnapInfo(snapY[1], hGuides, threshold), getSnapInfo(snapY[2], hGuides, threshold)];
+    if (resY[0].snapped) ny = resY[0].value;
+    else if (resY[1].snapped) ny = resY[1].value - h / 2;
+    else if (resY[2].snapped) ny = resY[2].value - h;
+
+    // 3. DOM Update (Lag-frei)
+    ghostRef.current.style.display = 'block';
+    ghostRef.current.style.width = `${w}px`;
+    ghostRef.current.style.height = `${h}px`;
+    ghostRef.current.style.transform = `translate3d(${nx}px, ${ny}px, 0)`;
+
+    // Bild-URL in den Ghost setzen (nur einmal beim Start)
+    const img = ghostRef.current.querySelector('img');
+    const video = ghostRef.current.querySelector('video');
+
+    const isVideo = ['video', 'manim', 'html'].includes(activeDragAsset.type);
+
+    if (isVideo && video && img) {
+      // Show Video, Hide Image
+      img.style.display = 'none';
+      video.style.display = 'block';
+      
+      // Only update src if changed to prevent flickering/reloading
+      // We use getAttribute to compare the raw string value
+      if (video.getAttribute('src') !== activeDragAsset.url) {
+        video.src = activeDragAsset.url;
+        video.load();
+        video.play().catch(() => { /* silent catch for autoplay policies */ });
+      }
+    } else if (img && video) {
+      // Show Image, Hide Video
+      video.style.display = 'none';
+      video.pause(); // Stop processing
+      img.style.display = 'block';
+      
+      if (img.getAttribute('src') !== activeDragAsset.url) {
+        img.src = activeDragAsset.url;
+      }
+    }
+
+    ghostRef.current.dataset.nx = nx.toString();
+    ghostRef.current.dataset.ny = ny.toString();
+  };
+
+  const handleDragLeave = () => {
+    if (ghostRef.current) {
+      ghostRef.current.style.display = 'none';
+    }
+  };
+
   return (
     <div
       ref={containerRef}
+      tabIndex={0}
       onMouseDown={handleStartPanning}
       onContextMenu={(e) => e.preventDefault()}
       className={`relative w-full h-full bg-[#1b1b1b] overflow-hidden canvas-container ${
         tool === 'hand' || isDraggingUI ? (isDraggingUI ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
       }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       {/* GRID PATTERN */}
       <div
@@ -358,15 +515,13 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
 
       {/* RENDER STAGE */}
       <div
-        ref={stageRef}
         id="canvas-stage"
+        ref={stageRef}
         className="absolute bg-black shadow-[0_0_100px_rgba(0,0,0,1)] border border-white/10 flex-shrink-0"
-        style={{
+        style={{ 
           width: resolution.w,
           height: resolution.h,
           transformOrigin: '0 0',
-          // WICHTIG: Wir geben React den aktuellen Wert der Refs mit.
-          // So löscht React das Transform beim Re-Render nicht, sondern bestätigt es.
           transform: `translate3d(${panRef.current.x}px, ${panRef.current.y}px, 0) scale(${zoomRef.current})`,
           willChange: 'transform',
           pointerEvents: tool === 'hand' || isDraggingUI ? 'none' : 'auto',
@@ -375,6 +530,28 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = memo(({
           transformStyle: 'preserve-3d',
         }}
       >
+        <div 
+          ref={ghostRef}
+          className="absolute hidden pointer-events-none border-2 border-indigo-500 bg-indigo-500/10 shadow-[0_0_40px_rgba(99,102,241,0.3)] z-[1000] overflow-hidden rounded-sm"
+          style={{ left: 0, top: 0, transformOrigin: 'top left' }}
+        >
+          {/* Image Preview Element */}
+          <img 
+            className="w-full h-full object-cover opacity-70" 
+            src="" 
+            alt="" 
+          />
+          
+          {/* NEW: Video Preview Element (Hidden by default via CSS logic in DragOver) */}
+          <video
+            className="w-full h-full object-cover opacity-70 hidden"
+            muted
+            loop
+            autoPlay
+            playsInline
+          />
+        </div>
+
         {children}
       </div>
 

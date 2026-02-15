@@ -2,6 +2,7 @@ import React, { memo, useMemo, useState, useEffect } from 'react';
 import { Film, Music, Image as ImageIcon, Code2, Sparkles, ChevronDown, Camera } from 'lucide-react';
 import { TrackItem, ASSET_COLORS } from '../../types';
 import { Waveform } from './Waveform';
+import { useDrag } from '@use-gesture/react';
 
 const TRACK_HEIGHT = 64;
 const CLIP_HEADER_HEIGHT = 20;
@@ -100,25 +101,6 @@ class ThumbnailGenerator {
 
 const generator = new ThumbnailGenerator();
 
-// --- COMPONENTS ---
-
-const SideHandle = ({ orientation, zoom, color }: { orientation: 'v' | 'h', zoom: number, color: string }) => {
-  const size = 32;
-  const center = size / 2;
-  const thickness = 3;
-  const border = 1;
-  const d = orientation === 'v' ? `M ${center} ${center - 10} V ${center + 10}` : `M ${center - 10} ${center} H ${center + 10}`;
-
-  return (
-    <div style={{ width: size, height: size, position: 'absolute', transform: `translate(-50%, -50%) scale(${1 / zoom})`, willChange: 'transform' }} className="flex items-center justify-center pointer-events-none">
-      <svg width={size} height={size} style={{ overflow: 'visible', shapeRendering: 'geometricPrecision' }}>
-        <path d={d} fill="none" stroke={color} strokeWidth={thickness + border * 2} strokeLinecap="round" />
-        <path d={d} fill="none" stroke="white" strokeWidth={thickness} strokeLinecap="round" />
-      </svg>
-    </div>
-  );
-};
-
 const ImageSequence = memo(({ item, zoom, clipWidth }: { item: TrackItem, zoom: number, clipWidth: number }) => {
   const [bakedFrames, setBakedFrames] = useState<Record<number, string>>({});
   const isVideoType = ['video', 'html', 'manim'].includes(item.type);
@@ -177,114 +159,176 @@ export const TimelineItem = memo(({
   const isSelected = selectedId === item.instanceId;
   const isImage = item.type === 'image';
   const safeDuration = item.duration || 5;
-  const safeSourceDuration = item.sourceDuration || safeDuration;
-  const clipWidth = safeDuration * zoom;
   const styleConfig = ASSET_COLORS[item.type] || ASSET_COLORS.video;
   const accentHex = getHexFromType(item.type);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const isVideoContent = ['video', 'html', 'manim'].includes(item.type);
 
-  const handleCaptureFreezeFrame = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsMenuOpen(false);
+  const [isInteracting, setIsInteracting] = useState(false);
 
-    // Calculate the exact time within the clip where the playhead is currently sitting
-    const timeInClip = (playheadTime - item.startTime) + (item.startTimeOffset || 0);
-    
-    // Request a frame from your singleton generator
-    generator.request(item.url, timeInClip, (dataUrl) => {
-      onCaptureFrame(`${item.name}_freeze_${Math.round(timeInClip)}s`, dataUrl);
-    });
+  // --- UTILS: Fade Path ---
+  const SideHandle = ({ orientation, color }: { orientation: 'v' | 'h', color: string }) => {
+    const size = 38;
+    const center = size / 2;
+    const d = orientation === 'v' 
+      ? `M ${center} ${center - 8} V ${center + 8}` 
+      : `M ${center - 8} ${center} H ${center + 8}`;
+
+    return (
+      <div className="flex items-center justify-center pointer-events-none">
+        <svg 
+          width={size} 
+          height={size} 
+          viewBox={`0 0 ${size} ${size}`}
+          style={{ overflow: 'visible' }}
+        >
+          <path d={d} fill="none" stroke="#ffffff8e" strokeWidth="4" strokeLinecap="round" />
+        </svg>
+      </div>
+    );
   };
 
+  // --- MOVE LOGIC ---
+  const bindMove = useDrag(({ down, movement: [mx, my], first, last, memo, event }) => {
+    // 1. Verhindert Drag auf Trim-Handles & Menü
+    if ((event.target as HTMLElement).closest('.stop-propagation')) return;
+
+    if (first) {
+      // Auswahl direkt hier erledigen
+      setSelectedId(item.instanceId);
+      setIsInteracting(true);
+      // Startwerte im memo speichern
+      return { startX: item.startTime, startY: item.layer };
+    }
+
+    // Berechnung (mx sind Pixel, zoom ist Pixel/Sekunde)
+    // WICHTIG: Nutze memo?.startX um sicherzugehen, dass memo existiert
+    const startX = memo?.startX ?? item.startTime;
+    const startY = memo?.startY ?? item.layer;
+
+    let nS = Math.max(0, startX + mx / zoom);
+    const nL = Math.max(0, Math.min(trackCount - 1, startY + Math.round(my / TRACK_HEIGHT)));
+
+    // Snap-Logik
+    const otherItems = items.filter(i => i.instanceId !== item.instanceId);
+    const snapPoints = [0, playheadTime, ...otherItems.flatMap(i => [i.startTime, i.startTime + i.duration])];
+    const threshold = 15 / zoom;
+    let snapTrigger: number | null = null;
+
+    for (const p of snapPoints) {
+      if (Math.abs(p - nS) < threshold) { nS = p; snapTrigger = p; break; }
+      if (Math.abs(p - (nS + item.duration)) < threshold) { nS = p - item.duration; snapTrigger = p; break; }
+    }
+
+    if (down) {
+      onSnap(snapTrigger);
+      setItems(prev => prev.map(i => 
+        i.instanceId === item.instanceId ? { ...i, startTime: nS, layer: nL } : i
+      ));
+    }
+
+    if (last) {
+      setIsInteracting(false);
+      onSnap(null);
+    }
+    return memo;
+  }, { 
+    filterTaps: true, 
+    threshold: 5,
+    // Verhindert, dass Text markiert wird während des Drags
+    eventOptions: { passive: false } 
+  });
+
+  // --- FADE DRAG LOGIC ---
   const handleFadeDrag = (type: 'in' | 'out', e: React.MouseEvent) => {
-    if (isImage) return;
     e.stopPropagation(); e.preventDefault();
+    setIsInteracting(true);
     const startX = e.clientX;
     const initialFade = type === 'in' ? (item.fadeInDuration || 0) : (item.fadeOutDuration || 0);
 
     const onMove = (moveE: MouseEvent) => {
       const deltaX = (moveE.clientX - startX) / zoom;
       const newVal = type === 'in' 
-        ? Math.max(0, Math.min(safeDuration / 2, initialFade + deltaX))
-        : Math.max(0, Math.min(safeDuration / 2, initialFade - deltaX));
+        ? Math.max(0, Math.min(item.duration / 2, initialFade + deltaX))
+        : Math.max(0, Math.min(item.duration / 2, initialFade - deltaX));
       setItems((prev) => prev.map((i) => i.instanceId === item.instanceId ? { ...i, [type === 'in' ? 'fadeInDuration' : 'fadeOutDuration']: newVal } : i));
     };
-
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+    const onUp = () => { 
+      window.removeEventListener('mousemove', onMove); 
+      window.removeEventListener('mouseup', onUp); 
+      setIsInteracting(false);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
 
-  const handleAction = (e: React.MouseEvent, type: 'move' | 'left' | 'right') => {
+  // --- TRIM LOGIC (Left/Right) ---
+  const handleAction = (e: React.MouseEvent, type: 'left' | 'right') => {
     e.stopPropagation(); e.preventDefault();
+    setIsInteracting(true);
     setSelectedId(item.instanceId);
-    const startX = e.clientX; const startY = e.clientY;
-    const initialItem = { ...item, duration: safeDuration };
-    const otherItems = (items || []).filter(i => i.instanceId !== item.instanceId);
-    const snapPoints = [playheadTime, ...otherItems.map(i => i.startTime), ...otherItems.map(i => i.startTime + (i.duration || 0))];
-    const threshold = 12 / zoom;
+    const startX = e.clientX;
+    const initialStartTime = item.startTime;
+    const initialDuration = item.duration;
+    const initialOffset = item.startTimeOffset || 0;
+    const otherItems = items.filter(i => i.instanceId !== item.instanceId);
+    const snapPoints = [0, playheadTime, ...otherItems.flatMap(i => [i.startTime, i.startTime + i.duration])];
+    const threshold = 15 / zoom;
 
     const onMouseMove = (moveE: MouseEvent) => {
       const deltaX = (moveE.clientX - startX) / zoom;
-      const deltaY = moveE.clientY - startY;
       let snapTrigger: number | null = null;
-
-      setItems((prev) => prev.map((i) => {
+      setItems(prev => prev.map(i => {
         if (i.instanceId !== item.instanceId) return i;
-        if (type === 'move') {
-          let nS = Math.max(0, initialItem.startTime + deltaX);
-          const nE = nS + initialItem.duration;
-          for (const p of snapPoints) {
-            if (Math.abs(p - nS) < threshold) { nS = p; snapTrigger = p; break; }
-            if (Math.abs(p - nE) < threshold) { nS = p - initialItem.duration; snapTrigger = p; break; }
-          }
-          const nL = Math.max(0, Math.min(trackCount - 1, Math.round((initialItem.layer * TRACK_HEIGHT + deltaY) / TRACK_HEIGHT)));
-          return { ...i, startTime: nS, layer: nL };
-        }
         if (type === 'left') {
-          let nS = initialItem.startTime + deltaX;
-          if ((initialItem.startTimeOffset || 0) + (nS - initialItem.startTime) < 0) nS = initialItem.startTime - (initialItem.startTimeOffset || 0);
+          let nS = initialStartTime + deltaX;
+          if (initialOffset + (nS - initialStartTime) < 0) nS = initialStartTime - initialOffset;
           for (const p of snapPoints) { if (Math.abs(p - nS) < threshold) { nS = p; snapTrigger = p; break; } }
-          const fD = nS - initialItem.startTime;
-          return { ...i, startTime: nS, startTimeOffset: (initialItem.startTimeOffset || 0) + fD, duration: Math.max(0.1, initialItem.duration - fD) };
-        }
-        if (type === 'right') {
-          let nD = initialItem.duration + deltaX;
-          const maxD = isImage ? 9999 : (initialItem.sourceDuration || 9999) - (initialItem.startTimeOffset || 0);
-          const nE = initialItem.startTime + nD;
-          for (const p of snapPoints) { if (Math.abs(p - nE) < threshold) { nD = p - initialItem.startTime; snapTrigger = p; break; } }
+          const diff = nS - initialStartTime;
+          return { ...i, startTime: nS, duration: Math.max(0.1, initialDuration - diff), startTimeOffset: initialOffset + diff };
+        } else {
+          let nD = initialDuration + deltaX;
+          const maxD = isImage ? 9999 : (item.sourceDuration || 9999) - initialOffset;
+          const nE = initialStartTime + nD;
+          for (const p of snapPoints) { if (Math.abs(p - nE) < threshold) { nD = p - initialStartTime; snapTrigger = p; break; } }
           return { ...i, duration: Math.min(Math.max(0.1, nD), maxD) };
         }
-        return i;
       }));
       onSnap(snapTrigger);
     };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      onSnap(null);
+    const onMouseUp = () => { 
+      window.removeEventListener('mousemove', onMouseMove); 
+      window.removeEventListener('mouseup', onMouseUp); 
+      setIsInteracting(false); onSnap(null); 
     };
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
   };
 
   const generateFadePath = (dur: number, type: 'in' | 'out') => {
+    const height=32;
     if (isImage) return "";
-    const safeDur = Math.min(dur || 0, safeDuration / 2);
+    const safeDur = Math.min(dur || 0, item.duration / 2);
     const w = safeDur * zoom;
     if (w <= 1) return "";
-    let path = `M ${type === 'in' ? 0 : clipWidth} ${TOTAL_CLIP_HEIGHT} `;
+
+    const clipWidth = item.duration * zoom;
+    
+    // Startpunkt: Unten am Rand des 34px-Containers
+    let path = `M ${type === 'in' ? 0 : clipWidth} ${height} `;
+
     for (let i = 0; i <= 12; i++) {
       const t = i / 12;
       const x = type === 'in' ? t * w : clipWidth - (t * w);
-      path += `L ${x} ${TOTAL_CLIP_HEIGHT - (smoothstep(t) * 34)} `;
+      
+      // Smoothstep geht von 0 bis 1. 
+      // Wir rechnen: 34 - (0..1 * 34) -> Ergibt Werte zwischen 34 (unten) und 0 (oben)
+      const y = height - (smoothstep(t) * height);
+      path += `L ${x} ${y} `;
     }
-    path += `L ${type === 'in' ? w : clipWidth - w} ${TOTAL_CLIP_HEIGHT} Z`;
+
+    // Pfad schließen
+    path += `L ${type === 'in' ? w : clipWidth - w} ${height} Z`;
     return path;
   };
 
@@ -294,135 +338,124 @@ export const TimelineItem = memo(({
       style={{ 
         left: item.startTime * zoom, 
         top: item.layer * TRACK_HEIGHT, 
-        width: clipWidth, 
+        width: item.duration * zoom,
         height: TRACK_HEIGHT, 
-        zIndex: isSelected ? 50 : 10, 
-        willChange: 'left, width, top' 
+        zIndex: isSelected ? 100 : 10,
+        transition: isInteracting ? 'none' : 'left 0.2s, top 0.2s, width 0.2s'
       }}
     >
-      {/* 1. GHOST LAYER (Background indicator for trimmed parts) */}
+      {/* 1. GHOST LAYER */}
       {isSelected && !isImage && (
         <div 
           className={`absolute h-[54px] top-[5px] border border-dashed rounded-lg pointer-events-none ${styleConfig.border}`} 
           style={{ 
             left: -(item.startTimeOffset || 0) * zoom, 
-            width: safeSourceDuration * zoom, 
+            width: (item.sourceDuration || item.duration) * zoom, 
             zIndex: -1,
-            borderOpacity: 1, // Ensures the stroke is fully visible
+            // opacity: 0.9 entfernt, damit der Rahmen 100% hat
           }} 
         >
-          {/* Background-only layer to preserve your preferred styleConfig.bg */}
-          <div className={`absolute inset-0 rounded-lg opacity-50 ${styleConfig.bg}`} />
+          {/* Hintergrund-Layer mit separater Opacity */}
+          <div 
+            className={`absolute inset-0 rounded-lg ${styleConfig.bg} opacity-60`} 
+          />
         </div>
       )}
 
-      {/* 2. MAIN CLIP CONTENT */}
+      {/* MAIN CONTENT & DRAG AREA */}
       <div 
-        onMouseDown={(e) => handleAction(e, 'move')} 
-        className={`absolute top-[5px] left-0 right-0 h-[54px] border flex flex-col rounded-lg transition-all ${
+        {...bindMove()} 
+        onPointerDownCapture={(e) => {
+          if (!(e.target as HTMLElement).closest('.stop-propagation')) {
+            setSelectedId(item.instanceId);
+          }
+        }}
+        className={`absolute inset-x-0 top-[5px] h-[54px] border flex flex-col rounded-lg ${
           isSelected 
             ? `${styleConfig.bg} ${styleConfig.accent} shadow-lg shadow-black/40` 
             : `bg-[#18181b] border-white/10 hover:border-white/20`
-        } ${isMenuOpen ? 'z-[100]' : 'overflow-hidden'}`}
+        } touch-none`} 
+        /* HINWEIS: overflow-hidden hier entfernt, damit die Handles rausragen dürfen! */
       >
-        {/* HEADER BAR - Bumped to z-40 to sit above trim handles (z-30) */}
-        <div 
-          className="h-5 flex items-center px-2 gap-1.5 bg-black/40 border-b border-white/5 relative shrink-0 z-40"
-        >
-          <div className={`shrink-0 flex items-center ${styleConfig.text}`}>
-            {item.type === 'video' && <Film size={11} />}
-            {item.type === 'audio' && <Music size={11} />}
-            {item.type === 'image' && <ImageIcon size={11} />}
-            {item.type === 'html' && <Code2 size={11} />}
-            {item.type === 'manim' && <Sparkles size={11} />}
+        {/* Header & Waveform Bereich bekommt jetzt das overflow-hidden */}
+        <div className="absolute inset-0 flex flex-col rounded-lg overflow-hidden pointer-events-none">
+          <div className="h-5 flex items-center px-2 bg-black/40 border-b border-white/5 relative z-10">
+            <span className="truncate text-[8px] font-black uppercase text-gray-200">{item.name}</span>
           </div>
-          
-          <span className="truncate text-[8px] font-black uppercase tracking-tight flex-1 text-gray-200 pointer-events-none">
-            {item.name}
-          </span>
+
+          <div className="relative flex-1">
+            <ImageSequence item={item} zoom={zoom} clipWidth={item.duration * zoom} />
+            {item.type !== 'image' && item.url && (
+              <Waveform url={item.url} zoom={zoom} width={item.duration * zoom} item={item} color={accentHex} />
+            )}
+            {/* TRIM HANDLES - Außerhalb des overflow-hidden Bereichs */}
+            <svg 
+              className="absolute inset-0 w-full h-full pointer-events-none z-10"
+              style={{ height: '34px' }} // Höhe des Waveform-Bereichs
+            >
+              <path 
+                d={generateFadePath(item.fadeInDuration || 0, 'in')} 
+                fill={accentHex} 
+                fillOpacity="0.15" 
+                stroke="white" 
+                strokeWidth="0.5" 
+                strokeDasharray="2,1" 
+              />
+              <path 
+                d={generateFadePath(item.fadeOutDuration || 0, 'out')} 
+                fill={accentHex} 
+                fillOpacity="0.15" 
+                stroke="white" 
+                strokeWidth="0.5" 
+                strokeDasharray="2,1" 
+              />
+            </svg>
+          </div>
+        </div>
         
-          {/* CHEVRON MENU */}
-          {isVideoContent && (
-            <div className="relative pointer-events-auto h-full flex items-center z-50">
-              <button 
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => { 
-                  e.stopPropagation(); 
-                  setIsMenuOpen(!isMenuOpen); 
-                }}
-                className="hover:bg-white/10 p-0.5 rounded transition-colors text-gray-400 hover:text-white"
-              >
-                <ChevronDown size={10} className={`transition-transform ${isMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {isMenuOpen && (
-                <div className="absolute top-0 right-0 overflow-visible">
-                  <div 
-                    className="fixed inset-0 z-[100]" 
-                    onMouseDown={(e) => { e.stopPropagation(); setIsMenuOpen(false); }} 
-                  />
-                  <div className="absolute top-6 right-0 w-32 bg-[#18181b] border border-white/10 rounded-md shadow-2xl z-[101] py-1 animate-in fade-in zoom-in-95 duration-100">
-                    <button 
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={handleCaptureFreezeFrame}
-                      className="w-full px-2 py-1.5 flex items-center gap-2 text-[9px] font-bold text-gray-300 hover:bg-indigo-600 hover:text-white transition-colors text-left"
-                    >
-                      <Camera size={10} />
-                      CAPTURE FRAME
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* CLIP BODY - Changed flex-1 to fixed h-[34px] to prevent the waveform "jump" */}
-        <div className="relative h-[34px] pointer-events-none overflow-hidden">
-          <ImageSequence item={item} zoom={zoom} clipWidth={clipWidth} />
-          
-          {item.type !== 'image' && item.url && (
-            <div className="absolute inset-0 z-0">
-              <Waveform url={item.url} zoom={zoom} width={clipWidth} item={item} color={accentHex} />
-            </div>
-          )}
-
-          {/* Fade Visualizer Overlay */}
-          <svg className="absolute inset-0 w-full h-full z-10" style={{ top: -CLIP_HEADER_HEIGHT, height: TOTAL_CLIP_HEIGHT }}>
-            <path d={generateFadePath(item.fadeInDuration || 0, 'in')} fill={accentHex} fillOpacity="0.1" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" opacity="1" />
-            <path d={generateFadePath(item.fadeOutDuration || 0, 'out')} fill={accentHex} fillOpacity="0.1" stroke="white" strokeWidth="0.5" strokeDasharray="2,1" opacity="1" />
-          </svg>
-        </div>
-
-        {/* TRIM HANDLES (Edges) */}
+        {/* LINKS TRIM HANDLE */}
         <div 
           onMouseDown={(e) => handleAction(e, 'left')} 
-          className="absolute left-0 top-0 bottom-0 w-4 cursor-col-resize z-30 flex items-center bg-white opacity-0 hover:opacity-30 transition-opacity justify-center transition-colors"
+          className="stop-propagation absolute left-0 top-0 bottom-0 w-4 cursor-col-resize z-30 group/handle"
         >
-          <SideHandle orientation="v" zoom={zoom} color={accentHex} />
+          {/* Der weiße Block (Hintergrund) */}
+          <div className="absolute inset-0 bg-white opacity-0 group-hover/handle:opacity-20 transition-opacity rounded-l-lg" />
+          
+          {/* Die weiße Linie - Jetzt zentriert und nur bei Hover sichtbar */}
+          <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 opacity-0 group-hover/handle:opacity-100 transition-opacity pointer-events-none">
+            <SideHandle orientation="v" color={accentHex} />
+          </div>
         </div>
+
+        {/* RECHTS TRIM HANDLE */}
         <div 
           onMouseDown={(e) => handleAction(e, 'right')} 
-          className="absolute right-0 top-0 bottom-0 w-4 cursor-col-resize z-30 flex items-center bg-white opacity-0 hover:opacity-30 transition-opacity justify-center transition-colors"
+          className="stop-propagation absolute right-0 top-0 bottom-0 w-4 cursor-col-resize z-30 group/handle"
         >
-          <SideHandle orientation="v" zoom={zoom} color={accentHex} />
+          {/* Der weiße Block (Hintergrund) */}
+          <div className="absolute inset-0 bg-white opacity-0 group-hover/handle:opacity-20 transition-opacity rounded-r-lg" />
+          
+          {/* Die weiße Linie - Jetzt zentriert und nur bei Hover sichtbar */}
+          <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 opacity-0 group-hover/handle:opacity-100 transition-opacity pointer-events-none">
+            <SideHandle orientation="v" color={accentHex} />
+          </div>
         </div>
       </div>
 
-      {/* 3. FADE HANDLES (Dots) */}
+      {/* 4. FADE HANDLES (Dots) */}
       {isSelected && !isImage && (
         <div className="absolute inset-0 pointer-events-none z-40">
           <div 
             onMouseDown={(e) => handleFadeDrag('in', e)} 
             className="absolute top-5 translate-x-[-50%] cursor-ew-resize pointer-events-auto" 
-            style={{ left: (Math.min(item.fadeInDuration || 0, safeDuration / 2) * zoom) }}
+            style={{ left: (Math.min(item.fadeInDuration || 0, item.duration / 2) * zoom) }}
           >
             <div className="w-2.5 h-2.5 bg-white rounded-full border-2 shadow-xl" style={{ borderColor: accentHex }} />
           </div>
           <div 
             onMouseDown={(e) => handleFadeDrag('out', e)} 
             className="absolute top-5 translate-x-[-50%] cursor-ew-resize pointer-events-auto" 
-            style={{ left: (safeDuration - Math.min(item.fadeOutDuration || 0, safeDuration / 2)) * zoom }}
+            style={{ left: (item.duration - Math.min(item.fadeOutDuration || 0, item.duration / 2)) * zoom }}
           >
             <div className="w-2.5 h-2.5 bg-white rounded-full border-2 shadow-xl" style={{ borderColor: accentHex }} />
           </div>

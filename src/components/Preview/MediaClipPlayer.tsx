@@ -19,6 +19,9 @@ export const MediaClipPlayer = memo(({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isReady, setIsReady] = useState(false);
 
+  // HELPER: Determine if this asset should be rendered as a video
+  const isVideoLike = ['video', 'manim', 'html'].includes(item.type);
+
   const safeDuration = item.duration ?? 5;
   const baseWidth = item.width || 1920;
   const baseHeight = item.height || 1080;
@@ -32,44 +35,42 @@ export const MediaClipPlayer = memo(({
   };
 
   // --- REFRESH LOGIC ---
-  // This effect specifically handles redrawing the current frame 
-  // immediately when the resolution scale or FPS settings change.
   useEffect(() => {
     const media = mediaRef.current;
     const canvas = canvasRef.current;
-    if (!media || !canvas || item.type !== 'video' || !(media instanceof HTMLVideoElement)) return;
+    // UPDATED: Check for isVideoLike instead of just 'video'
+    if (!media || !canvas || !isVideoLike || !(media instanceof HTMLVideoElement)) return;
 
     const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     
-    // If the video is ready, force a frame draw immediately.
-    // This is what fixes the "delayed update" when changing resolution.
     if (media.readyState >= 2) {
       ctx?.drawImage(media, 0, 0, canvas.width, canvas.height);
     }
-  }, [previewDownscale, previewFps, item.instanceId, isReady]);
+  }, [previewDownscale, previewFps, item.instanceId, isReady, isVideoLike]);
 
   useEffect(() => {
     const media = mediaRef.current;
     if (!media || item.type === 'image') return;
 
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas && isVideoLike) return;
 
-    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    const ctx = canvas?.getContext('2d', { alpha: false, desynchronized: true });
     let frameId: number;
     let lastPaintTime = 0;
     const fpsInterval = 1000 / previewFps;
 
     const paint = (now: number) => {
-      if (item.type === 'video' && media instanceof HTMLVideoElement && media.readyState >= 2) {
+      // UPDATED: Allow html and manim to draw to canvas
+      if (isVideoLike && media instanceof HTMLVideoElement && media.readyState >= 2) {
         const elapsed = now - lastPaintTime;
         if (elapsed >= fpsInterval) {
           lastPaintTime = now - (elapsed % fpsInterval);
-          ctx?.drawImage(media, 0, 0, canvas.width, canvas.height);
+          ctx?.drawImage(media, 0, 0, canvas!.width, canvas!.height);
         }
       }
       
-      if (item.type === 'video' && media instanceof HTMLVideoElement) {
+      if (isVideoLike && media instanceof HTMLVideoElement) {
         if ('requestVideoFrameCallback' in media) {
           frameId = (media as any).requestVideoFrameCallback(() => paint(performance.now()));
         } else {
@@ -119,13 +120,13 @@ export const MediaClipPlayer = memo(({
       if (Math.abs(media.volume - vol) > 0.01) media.volume = vol;
     });
 
-    if (item.type === 'video') {
+    if (isVideoLike) {
       paint(performance.now());
     }
 
     return () => {
       unsubscribe();
-      if (item.type === 'video' && media instanceof HTMLVideoElement) {
+      if (isVideoLike && media instanceof HTMLVideoElement) {
         if ('cancelVideoFrameCallback' in media) {
           (media as any).cancelVideoFrameCallback(frameId);
         } else {
@@ -133,7 +134,7 @@ export const MediaClipPlayer = memo(({
         }
       }
     };
-  }, [item.instanceId, isMuted, item.url, previewFps, previewDownscale, safeDuration]);
+  }, [item.instanceId, isMuted, item.url, previewFps, previewDownscale, safeDuration, isVideoLike]);
 
   if (item.type === 'image') {
     return (
@@ -160,19 +161,23 @@ export const MediaClipPlayer = memo(({
             playsInline 
             onLoadedData={() => setIsReady(true)}
           />
-          <canvas 
-            ref={canvasRef} 
-            width={canvasWidth} 
-            height={canvasHeight} 
-            className={`w-full h-full object-fill transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`} 
-            style={{ 
-              imageRendering: previewDownscale < 1 ? 'pixelated' : 'auto' 
-            }}
-          />
+          {/* UPDATED: Only show canvas for video-like types */}
+          {isVideoLike && (
+            <canvas 
+              ref={canvasRef} 
+              width={canvasWidth} 
+              height={canvasHeight} 
+              className={`w-full h-full object-fill transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`} 
+              style={{ 
+                imageRendering: previewDownscale < 1 ? 'pixelated' : 'auto' 
+              }}
+            />
+          )}
         </>
       )}
       
-      {!isReady && item.type === 'video' && (
+      {/* UPDATED: Show spinner for all video types while loading */}
+      {!isReady && isVideoLike && (
         <div className="absolute inset-0 bg-bg-canvas flex items-center justify-center">
           <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
         </div>

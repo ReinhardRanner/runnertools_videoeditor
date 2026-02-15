@@ -40,6 +40,7 @@ export default function App() {
   const [tool, setTool] = useState<'select' | 'hand'>('select');
   const [isShiftPressed, setIsShiftPressed] = useState(false);
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
+  const [activeDragAsset, setActiveDragAsset] = useState<Asset | null>(null);
 
   // --- Export Settings ---
   const [isRenderMenuOpen, setIsRenderMenuOpen] = useState(false);
@@ -60,6 +61,35 @@ export default function App() {
     { label: 'Potato', crf: 45, desc: 'Maximum compression' },
   ];
   const FORMATS = ['mp4', 'webm', 'mov'];
+
+  // In your App.tsx (Parent)
+  const handleAddAsset = (asset: Asset, x?: number, y?: number, time?: number, layer?: number) => {
+    const instanceId = crypto.randomUUID();
+    // Echte Maße holen
+    const originalW = asset.resolution?.w || 400;
+    const originalH = asset.resolution?.h || 225;
+
+    const newTrackItem: TrackItem = {
+      ...asset,
+      url: asset.url,
+      instanceId: instanceId,
+      id: instanceId,
+      startTime: time ?? currentTime, // Direkt bei der aktuellen Zeit einfügen
+      startTimeOffset: 0,
+      duration: asset.duration || 5,
+      x: x ?? resolution.w / 2 - (originalW / 2), // Zentriert auf der Timeline
+      y: y ?? resolution.h / 2 - (originalH / 2), // Zentriert auf der Timeline
+      width: originalW,
+      height: originalH,
+      layer: layer ?? timelineItems.length, // Nutze timelineItems statt activeAssets
+      rotation: 0,
+      opacity: 1,
+    } as TrackItem;
+
+    // Nur noch die Timeline-Items setzen
+    setTimelineItems(prev => [...prev, newTrackItem]);
+    setSelectedInstanceId(instanceId);
+  };
 
   // --- Custom Hooks ---
   const { handleExport, cancelExport, resetStatus, progress, status, loaded: ffmpegLoaded } = useFFmpeg(resolution);
@@ -199,6 +229,16 @@ export default function App() {
 
         setAssets(prev => [...prev, newAsset]);
       });
+  };
+
+  const handleNudge = (dx: number, dy: number) => {
+    const item = timelineItems.find(i => i.instanceId === selectedInstanceId);
+    if (!item) return;
+
+    updateSelectedItem({
+      x: item.x + dx,
+      y: item.y + dy
+    });
   };
 
   const updateAsset = (id: string, updates: Partial<Asset>) => {
@@ -461,7 +501,10 @@ export default function App() {
             <Group orientation="horizontal">
               <Panel defaultSize={20} className="bg-bg-surface p-4 border-r border-border-default">
                 <FileExplorer
-                  assets={assets} onUpload={handleUpload} onAdd={addAssetToTimeline}
+                  assets={assets}
+                  onUpload={handleUpload}
+                  onAdd={addAssetToTimeline}
+                  onDragStart={setActiveDragAsset}
                   onDelete={(id) => setAssets(prev => prev.filter(a => a.id !== id))}
                   onRename={(id, newName) => {
                     setAssets(prev => prev.map(a => a.id === id ? { ...a, name: newName } : a));
@@ -502,6 +545,10 @@ export default function App() {
                   setPreviewFps={setPreviewFps}
                   previewDownscale={previewDownscale}
                   setPreviewDownscale={setPreviewDownscale}
+                  onAdd={handleAddAsset}
+                  activeDragAsset={activeDragAsset}
+                  selectedId={selectedInstanceId}
+                  onMoveSelected={handleNudge}
                 >
                   {[...timelineItems].sort((a, b) => b.layer - a.layer).map((item) => {
                     const isVisible = currentTime >= item.startTime && currentTime <= (item.startTime + item.duration);
@@ -558,7 +605,21 @@ export default function App() {
 
           <Separator className="h-1 bg-bg-canvas-deep hover:bg-indigo-600 transition-all" />
           <Panel defaultSize={25} minSize={20}>
-            <Timeline items={timelineItems} setItems={setTimelineItems} currentTime={currentTime} setCurrentTime={setCurrentTime} isPlaying={isPlaying} setIsPlaying={setIsPlaying} zoom={timelineZoom} setZoom={setTimelineZoom} selectedId={selectedInstanceId} setSelectedId={setSelectedInstanceId} onSplit={onSplit} onCaptureFrame={handleCaptureFrame} />
+            <Timeline
+              items={timelineItems}
+              setItems={setTimelineItems}
+              currentTime={currentTime}
+              setCurrentTime={setCurrentTime}
+              isPlaying={isPlaying}
+              setIsPlaying={setIsPlaying}
+              zoom={timelineZoom}
+              setZoom={setTimelineZoom}
+              selectedId={selectedInstanceId}
+              setSelectedId={setSelectedInstanceId}
+              onCaptureFrame={handleCaptureFrame}
+              activeDragAsset={activeDragAsset}
+              onAdd={(asset, time, layer) => handleAddAsset(asset, undefined, undefined, time, layer)}
+            />
           </Panel>
         </Group>
       </div>

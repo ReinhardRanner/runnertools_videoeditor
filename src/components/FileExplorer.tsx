@@ -15,10 +15,14 @@ interface FileExplorerProps {
   onCreateDynamic: (type: 'html' | 'manim') => void;
   onEditDynamic: (asset: Asset) => void;
   onCreateTTS: () => void;
+  onDragStart: (asset: Asset | null) => void;
 }
 
+const transparentPixel = new Image();
+transparentPixel.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 export const FileExplorer: React.FC<FileExplorerProps> = ({
-  assets, onUpload, onAdd, onDelete, onRename, onCreateDynamic, onEditDynamic, onCreateTTS
+  assets, onUpload, onAdd, onDelete, onRename, onCreateDynamic, onEditDynamic, onCreateTTS, onDragStart
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -36,11 +40,25 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   }, [renamingId]);
 
   // --- Handlers ---
-  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragOver = (e: React.DragEvent) => { 
+    e.preventDefault();
+    if (e.dataTransfer.types.includes("application/react-asset")) {
+      e.dataTransfer.dropEffect = "none";
+      setIsDragging(false);
+      return;
+    }
+
+    setIsDragging(true); 
+  };
   const handleDragLeave = () => setIsDragging(false);
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+
+    if (e.dataTransfer.types.includes("application/react-asset")) {
+      return;
+    }
+
     if (e.dataTransfer.files?.length) {
       const dt = new DataTransfer();
       for (let i = 0; i < e.dataTransfer.files.length; i++) dt.items.add(e.dataTransfer.files[i]);
@@ -64,6 +82,16 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') submitRename();
     if (e.key === 'Escape') setRenamingId(null);
+  };
+
+  const handleDragStart = (e: React.DragEvent, asset: Asset) => {
+    onDragStart(asset);
+    e.dataTransfer.setData("application/react-asset", JSON.stringify(asset));
+    
+    // Trick: Ein leeres, unsichtbares Image als Drag-Image setzen
+    e.dataTransfer.setDragImage(transparentPixel, 0, 0);
+    
+    e.dataTransfer.effectAllowed = "move";
   };
 
   return (
@@ -164,6 +192,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
               <div
                 key={asset.id}
                 onClick={() => !isEditing && (asset.type === 'html' || asset.type === 'manim') && onEditDynamic(asset)}
+                onDragStart={(e) => {
+                  handleDragStart(e, asset); 
+                  onDragStart(asset);
+                }}
+                draggable={!asset.isProcessing && !!asset.url}
                 className={`group relative flex flex-col bg-white/[0.02] rounded-2xl border transition-all cursor-pointer overflow-hidden ${
                   asset.processError && !asset.isProcessing ? 'border-red-500/30' : `border-white/5 hover:${colors.border}`
                 }`}

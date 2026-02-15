@@ -21,6 +21,7 @@ export async function renderVideoInBrowser({
   fps = 30,
   onProgress
 }: RenderOptions): Promise<string> {
+  console.log('this html', html);
   // 1. Initialize FFmpeg Singleton
   if (!ffmpegInstance) {
     ffmpegInstance = new FFmpeg();
@@ -47,24 +48,47 @@ export async function renderVideoInBrowser({
 
   // 3. Inject Clock Hijack Script
   const srcDoc = `
-    <script>
-      let currentTime = 0;
-      const frameDuration = ${1000 / fps};
-      const rafCallbacks = [];
-      window.performance.now = () => currentTime;
-      window.Date.now = () => currentTime;
-      window.requestAnimationFrame = (cb) => {
-        rafCallbacks.push(cb);
-        return rafCallbacks.length;
-      };
-      window.__advanceFrame = () => {
-        currentTime += frameDuration;
-        const callbacks = [...rafCallbacks];
-        rafCallbacks.length = 0;
-        callbacks.forEach(cb => { try { cb(currentTime); } catch(e) {} });
-      };
-    </script>
-    ${html}
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <style>
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
+        }
+        html, body { 
+          width: ${width}px; 
+          height: ${height}px; 
+          overflow: hidden; 
+          background-color: white !important;
+        }
+      </style>
+      <script>
+        let currentTime = 0;
+        const frameDuration = ${1000 / fps};
+        const rafCallbacks = [];
+        window.performance.now = () => currentTime;
+        window.Date.now = () => currentTime;
+        window.requestAnimationFrame = (cb) => {
+          rafCallbacks.push(cb);
+          return rafCallbacks.length;
+        };
+        window.__advanceFrame = () => {
+          currentTime += frameDuration;
+          const callbacks = [...rafCallbacks];
+          rafCallbacks.length = 0;
+          callbacks.forEach(cb => { try { cb(currentTime); } catch(e) {} });
+        };
+      </script>
+    </head>
+    <body>
+      ${html}
+    </body>
+  </html>
   `;
 
   return new Promise(async (resolve, reject) => {
@@ -76,13 +100,13 @@ export async function renderVideoInBrowser({
 
           // Capture Frame
           const canvas = await html2canvas(iframe.contentDocument!.body, {
-            width, height, scale: 1, logging: false, useCORS: true, backgroundColor: '#000'
+            width, height, scale: 1, logging: false, useCORS: true, backgroundColor: '#ffffff'
           });
 
           // Write to FFmpeg Virtual Filesystem
-          const blob = await new Promise<Blob>((res) => canvas.toBlob(b => res(b!), 'image/jpeg', 0.85));
+          const blob = await new Promise<Blob>((res) => canvas.toBlob(b => res(b!), 'image/png', 0.85));
           const arrayBuffer = await blob.arrayBuffer();
-          await ffmpeg.writeFile(`f_${i.toString().padStart(4, '0')}.jpg`, new Uint8Array(arrayBuffer));
+          await ffmpeg.writeFile(`f_${i.toString().padStart(4, '0')}.png`, new Uint8Array(arrayBuffer));
 
           onProgress?.(Math.round((i / totalFrames) * 85), `Capturing frame ${i}/${totalFrames}`);
         }
@@ -91,10 +115,10 @@ export async function renderVideoInBrowser({
         onProgress?.(90, 'Encoding MP4...');
         await ffmpeg.exec([
           '-framerate', `${fps}`,
-          '-i', 'f_%04d.jpg',
+          '-i', 'f_%04d.png',
           '-c:v', 'libx264',
           '-pix_fmt', 'yuv420p',
-          '-crf', '22',
+          '-crf', '20',
           'output.mp4'
         ]);
 
